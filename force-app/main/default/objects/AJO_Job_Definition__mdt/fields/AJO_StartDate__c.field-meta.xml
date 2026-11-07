@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>AJO_StartDate__c</fullName>
+    <description>First day the job may run. Blank = immediately.</description>
+    <fieldManageability>DeveloperControlled</fieldManageability>
+    <label>Start Date</label>
+    <required>false</required>
+    <type>Date</type>
+</CustomField>

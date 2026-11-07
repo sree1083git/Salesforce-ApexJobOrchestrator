@@ -11,11 +11,11 @@
                 <field>Name</field>
             </layoutItems>
             <layoutItems>
-                <behavior>Edit</behavior>
+                <behavior>Readonly</behavior>
                 <field>AJO_JobKey__c</field>
             </layoutItems>
             <layoutItems>
-                <behavior>Edit</behavior>
+                <behavior>Readonly</behavior>
                 <field>AJO_Description__c</field>
             </layoutItems>
         </layoutColumns>
@@ -25,7 +25,7 @@
                 <field>OwnerId</field>
             </layoutItems>
             <layoutItems>
-                <behavior>Edit</behavior>
+                <behavior>Readonly</behavior>
                 <field>AJO_Priority__c</field>
             </layoutItems>
         </layoutColumns>
@@ -38,25 +38,25 @@
         <label>What Runs</label>
         <layoutColumns>
             <layoutItems>
-                <behavior>Required</behavior>
+                <behavior>Readonly</behavior>
                 <field>AJO_ApexClassName__c</field>
             </layoutItems>
             <layoutItems>
-                <behavior>Required</behavior>
+                <behavior>Readonly</behavior>
                 <field>AJO_ExecutionType__c</field>
             </layoutItems>
             <layoutItems>
-                <behavior>Edit</behavior>
+                <behavior>Readonly</behavior>
                 <field>AJO_BatchSize__c</field>
             </layoutItems>
         </layoutColumns>
         <layoutColumns>
             <layoutItems>
-                <behavior>Edit</behavior>
+                <behavior>Readonly</behavior>
                 <field>AJO_Parameters__c</field>
             </layoutItems>
             <layoutItems>
-                <behavior>Edit</behavior>
+                <behavior>Readonly</behavior>
                 <field>AJO_DependsOnJobId__c</field>
             </layoutItems>
         </layoutColumns>
@@ -69,11 +69,11 @@
         <label>Schedule</label>
         <layoutColumns>
             <layoutItems>
-                <behavior>Required</behavior>
+                <behavior>Readonly</behavior>
                 <field>AJO_CronExpression__c</field>
             </layoutItems>
             <layoutItems>
-                <behavior>Edit</behavior>
+                <behavior>Readonly</behavior>
                 <field>AJO_TimeZoneSidKey__c</field>
             </layoutItems>
         </layoutColumns>
@@ -83,7 +83,7 @@
                 <field>AJO_NextRunAt__c</field>
             </layoutItems>
             <layoutItems>
-                <behavior>Edit</behavior>
+                <behavior>Readonly</behavior>
                 <field>AJO_OverlapPolicy__c</field>
             </layoutItems>
         </layoutColumns>
@@ -100,11 +100,11 @@
                 <field>AJO_Enabled__c</field>
             </layoutItems>
             <layoutItems>
-                <behavior>Edit</behavior>
+                <behavior>Readonly</behavior>
                 <field>AJO_StartDate__c</field>
             </layoutItems>
             <layoutItems>
-                <behavior>Edit</behavior>
+                <behavior>Readonly</behavior>
                 <field>AJO_EndDate__c</field>
             </layoutItems>
         </layoutColumns>
@@ -118,11 +118,11 @@
                 <field>AJO_WindowStatus__c</field>
             </layoutItems>
             <layoutItems>
-                <behavior>Edit</behavior>
+                <behavior>Readonly</behavior>
                 <field>AJO_DryRun__c</field>
             </layoutItems>
             <layoutItems>
-                <behavior>Edit</behavior>
+                <behavior>Readonly</behavior>
                 <field>AJO_Pinned__c</field>
             </layoutItems>
         </layoutColumns>
@@ -157,15 +157,15 @@
                 <field>AJO_ConsecutiveFailures__c</field>
             </layoutItems>
             <layoutItems>
-                <behavior>Edit</behavior>
+                <behavior>Readonly</behavior>
                 <field>AJO_MaxConsecutiveFailures__c</field>
             </layoutItems>
             <layoutItems>
-                <behavior>Edit</behavior>
+                <behavior>Readonly</behavior>
                 <field>AJO_MaxRuntimeMinutes__c</field>
             </layoutItems>
             <layoutItems>
-                <behavior>Edit</behavior>
+                <behavior>Readonly</behavior>
                 <field>AJO_NotifyEmails__c</field>
             </layoutItems>
             <layoutItems>

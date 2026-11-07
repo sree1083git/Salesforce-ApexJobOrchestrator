@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>AJO_ReplacesCronJobName__c</fullName>
+    <description
+  >Name of the Setup scheduled job this definition takes over. The first sync after activation aborts it in the same transaction that creates the job state, so the job never runs twice or not at all.</description>
+    <fieldManageability>DeveloperControlled</fieldManageability>
+    <label>Replaces Setup Job</label>
+    <length>255</length>
+    <required>false</required>
+    <type>Text</type>
+</CustomField>

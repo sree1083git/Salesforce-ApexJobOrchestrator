@@ -29,6 +29,7 @@ private class AJOFrameworkTest {
     @TestSetup
     static void setup() {
         insert new AJOSetting__c(
+            AJO_AllowUnmanagedJobs__c   = true,
             AJO_KillSwitch__c           = false,
             AJO_HeartbeatMinutes__c     = 10,
             AJO_MaxConcurrentBatches__c = 5,
@@ -197,16 +198,18 @@ private class AJOFrameworkTest {
         update job;
 
         Test.startTest();
-        AJODispatcher.run(0);
+        AJOLauncher.runNow(job, Datetime.now(), 'Heartbeat', 0);
+        update job;
         AJOJob__c mid = [
             SELECT AJO_Status__c, AJO_ConsecutiveFailures__c FROM AJOJob__c WHERE Id = :job.Id
         ];
         System.assertEquals(1, mid.AJO_ConsecutiveFailures__c, 'First failure counted.');
         System.assertEquals('Idle', mid.AJO_Status__c, 'One failure is not enough to suspend.');
 
-        mid.AJO_NextRunAt__c = Datetime.now().addMinutes(-1);
-        update mid;
-        AJODispatcher.run(0);
+        AJOJob__c again = Database.query('SELECT ' + AJOLauncher.JOB_FIELDS
+            + ' FROM AJOJob__c WHERE Id = \'' + job.Id + '\'');
+        AJOLauncher.runNow(again, Datetime.now(), 'Heartbeat', 0);
+        update again;
         Test.stopTest();
 
         AJOJob__c after = [
@@ -337,8 +340,12 @@ private class AJOFrameworkTest {
         System.assertEquals(1, jobs.size());
         System.assertEquals('Every hour at :17', jobs[0].schedule,
             'The console shows plain English, not cron.');
-        System.assertEquals('Success', status);
+        // Run now no longer executes inside the clicking user's request: it opens
+        // the run and hands the job to its own executor transaction.
+        System.assertEquals('Queued', status);
         System.assertEquals(1, runs.size());
+        System.assertEquals('Success', [SELECT AJO_Status__c FROM AJOJobRun__c WHERE AJO_Job__c = :job.Id LIMIT 1].AJO_Status__c,
+            'The executor ran the job when the queue drained.');
         System.assertEquals('Manual', runs[0].triggeredBy);
         System.assertEquals(5, preview.size(), 'Five upcoming fire times.');
         System.assertEquals(100, health.slotLimit);
@@ -483,6 +490,7 @@ private class AJOFrameworkTest {
         // lookahead whenever the test happened to run after :50, and the
         // assertions failed for reasons that had nothing to do with deferral.
         AJOConfig.applyOverride(new AJOSetting__c(
+            AJO_AllowUnmanagedJobs__c = true,
             AJO_KillSwitch__c = false, AJO_HeartbeatMinutes__c = 10,
             AJO_MaxConcurrentBatches__c = 5, AJO_EnableDeferral__c = true,
             AJO_DefaultTimeZone__c = TZ));

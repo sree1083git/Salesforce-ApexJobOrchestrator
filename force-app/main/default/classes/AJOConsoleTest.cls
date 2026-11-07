@@ -6,6 +6,19 @@
 @IsTest
 private class AJOConsoleTest {
 
+    /**
+     * These tests exercise the engine with directly-inserted AJOJob__c rows
+     * (unmanaged jobs), so they run in the migration mode that allows them.
+     * The definition-backed (managed) path is covered by AJODefinitionSyncTest,
+     * AJOEngineHardeningTest and AJODefinitionValidationTest.
+     */
+    @TestSetup
+    static void allowUnmanagedJobs() {
+        insert new AJOSetting__c(AJO_AllowUnmanagedJobs__c = true, AJO_HeartbeatMinutes__c = 10,
+                                 AJO_MaxConcurrentBatches__c = 5, AJO_EnableDeferral__c = true);
+    }
+
+
     private static AJOJob__c job(String key, String name) {
         return new AJOJob__c(
             Name                  = name,
@@ -386,10 +399,10 @@ private class AJOConsoleTest {
         System.assertEquals(4, byName.size(),
             'Every enabled job belongs on the tab, not only the ones about to run.');
 
-        System.assertEquals('Never runs', byName.get('Pinned and therefore dead').verdict);
-        System.assert(byName.get('Pinned and therefore dead').verdictReason
+        // Pinned is deprecated and ignored: the trap that made such jobs never run is gone.
+        System.assert(!byName.get('Pinned and therefore dead').verdictReason
                         .containsIgnoreCase('exact minute'),
-            'The pinned trap has to name itself: '
+            'A pinned job is treated like any other now: '
             + byName.get('Pinned and therefore dead').verdictReason);
 
         System.assertEquals('Never runs', byName.get('No next run time').verdict);
@@ -492,7 +505,10 @@ private class AJOConsoleTest {
         String status = AJOAdminController.retryRun(failed.Id);
         Test.stopTest();
 
-        System.assertEquals('Success', status, 'The demo Runnable succeeds when run again.');
+        System.assertEquals('Queued', status, 'Running again hands the job to its own transaction.');
+        System.assertEquals(1, [SELECT COUNT() FROM AJOJobRun__c
+                                WHERE AJO_Job__c = :j.Id AND AJO_Status__c = 'Success'],
+            'The demo Runnable succeeds when run again.');
         System.assert([SELECT COUNT() FROM AJOJobRun__c WHERE AJO_Job__c = :j.Id] > 1,
             'Running again must leave its own run record behind.');
     }

@@ -1,7 +1,8 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version="1.0" encoding="UTF-8" ?>
 <CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
     <fullName>AJO_Status__c</fullName>
-    <description>Runtime state, maintained by the dispatcher and supervisor.</description>
+    <description
+  >Runtime state, maintained by the dispatcher and supervisor.</description>
     <label>Status</label>
     <required>false</required>
     <trackHistory>true</trackHistory>
@@ -40,6 +41,16 @@
                 <fullName>Expired</fullName>
                 <default>false</default>
                 <label>Expired</label>
+            </value>
+                    <value>
+                <fullName>Retired</fullName>
+                <default>false</default>
+                <label>Retired</label>
+            </value>
+            <value>
+                <fullName>Invalid</fullName>
+                <default>false</default>
+                <label>Invalid</label>
             </value>
         </valueSetDefinition>
     </valueSet>

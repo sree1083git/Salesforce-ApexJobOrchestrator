@@ -1,11 +1,26 @@
 /**
- * Arms and disarms the permanent slots.
- * Six heartbeats plus one supervisor — seven registrations, whatever the job count.
+ * Arms, disarms and heals the framework's permanent scheduled-Apex slots:
+ * six heartbeats plus one supervisor — seven registrations, whatever the job
+ * count.
+ *
+ * Self-healing: every heartbeat and the supervisor call healSafely(), which
+ * re-creates any of the seven that went missing (aborted by hand, lost in a
+ * sandbox refresh, removed by a deployment). The checks therefore heal each
+ * other every ten minutes; a lone survivor rebuilds the rest. Healing only
+ * happens while the framework is installed (at least one registration still
+ * exists), so a deliberate uninstall stays uninstalled.
+ *
+ * Runs without sharing: framework infrastructure.
  */
-public with sharing class AJOInstaller {
+public without sharing class AJOInstaller {
 
     public static final String HEARTBEAT_PREFIX = 'AJO Heartbeat ';
-    public static final String SUPERVISOR_NAME    = 'AJO Supervisor';
+    public static final String SUPERVISOR_NAME  = 'AJO Supervisor';
+    /**
+     * Hourly at :05. Was daily at 02:05, which meant a total heartbeat outage
+     * could go unhealed and unreported for up to a day.
+     */
+    public static final String SUPERVISOR_CRON  = '0 5 * * * ?';
 
     public static List<Integer> slots() {
         List<Integer> out = new List<Integer>();
@@ -26,18 +41,50 @@ public with sharing class AJOInstaller {
         for (Integer m : slots()) {
             String nm = heartbeatName(m);
             if (existing.containsKey(nm)) { continue; }
-            String cron = '0 ' + m + ' * * * ?';
-            System.schedule(nm, cron, new AJODispatcher(m));
+            System.schedule(nm, '0 ' + m + ' * * * ?', new AJODispatcher(m));
             armed.add(nm);
         }
-        if (!existing.containsKey(SUPERVISOR_NAME)) {
-            System.schedule(SUPERVISOR_NAME, '0 5 2 * * ?', new AJOSupervisor());
+        CronTrigger sup = existing.get(SUPERVISOR_NAME);
+        if (sup != null && sup.CronExpression != SUPERVISOR_CRON) {
+            // An install from before the supervisor went hourly: move it.
+            System.abortJob(sup.Id);
+            sup = null;
+        }
+        if (sup == null) {
+            System.schedule(SUPERVISOR_NAME, SUPERVISOR_CRON, new AJOSupervisor());
             armed.add(SUPERVISOR_NAME);
         }
         return armed;
     }
 
-    /** Re-creates only what has gone missing. Called daily by the supervisor. */
+    /**
+     * Re-creates whatever is missing, if the framework is installed at all.
+     * Returns how many registrations were created (0 when nothing was missing,
+     * -1 when healing failed). Never throws, and alerts when it acted.
+     */
+    public static Integer healSafely() {
+        try {
+            Map<String, CronTrigger> existing = scheduledByName();
+            if (existing.isEmpty()) { return 0; } // uninstalled on purpose
+            Integer expected = slots().size() + 1;
+            Boolean supervisorCurrent = existing.containsKey(SUPERVISOR_NAME)
+                && existing.get(SUPERVISOR_NAME).CronExpression == SUPERVISOR_CRON;
+            if (existing.size() >= expected && supervisorCurrent) { return 0; }
+
+            List<String> armed = arm();
+            if (!armed.isEmpty()) {
+                AJOAlerts.raise(AJOAlerts.WARNING, 'SLOTS_REARMED', null,
+                    'Re-created missing scheduled checks: ' + String.join(armed, ', ') + '.');
+            }
+            return armed.size();
+        } catch (Exception e) {
+            AJOAlerts.raise(AJOAlerts.ERROR, 'SLOTS_REARMED', null,
+                'Could not re-create missing scheduled checks: ' + e.getMessage());
+            return -1;
+        }
+    }
+
+    /** Kept for callers of the previous API. */
     public static Integer rearmMissing() {
         try { return arm().size(); } catch (Exception e) { return -1; }
     }
@@ -87,9 +134,11 @@ public with sharing class AJOInstaller {
         if (s.AJO_MaxConcurrentBatches__c == null)  { s.AJO_MaxConcurrentBatches__c = 5; }
         if (s.AJO_RetentionDaysSuccess__c == null)  { s.AJO_RetentionDaysSuccess__c = 14; }
         if (s.AJO_RetentionDaysFailure__c == null)  { s.AJO_RetentionDaysFailure__c = 90; }
-        if (String.isBlank(s.AJO_DefaultTimeZone__c)) { s.AJO_DefaultTimeZone__c = AJOCron.DEFAULT_TZ; }
+        if (String.isBlank(s.AJO_DefaultTimeZone__c)) { s.AJO_DefaultTimeZone__c = AJOConfig.orgTimeZone(); }
         if (s.AJO_EnableDeferral__c == null)        { s.AJO_EnableDeferral__c = true; }
         if (s.AJO_KillSwitch__c == null)            { s.AJO_KillSwitch__c = false; }
+        if (s.AJO_MaxLaunchesPerCheck__c == null)   { s.AJO_MaxLaunchesPerCheck__c = AJOConfig.DEFAULT_MAX_LAUNCHES; }
+        if (s.AJO_FlexQueueCap__c == null)          { s.AJO_FlexQueueCap__c = AJOConfig.DEFAULT_FLEX_QUEUE_CAP; }
         if (isNew) { insert s; } else { update s; }
         return s;
     }

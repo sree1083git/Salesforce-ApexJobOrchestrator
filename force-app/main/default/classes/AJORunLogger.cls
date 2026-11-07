@@ -1,9 +1,13 @@
 /**
- * Opens, closes and reconciles run records, and drives the circuit breaker.
- * Retention is enforced by AJOSupervisor — the source org is at 212% of its data
- * storage allocation, so an unbounded log is not an option.
+ * Opens, closes and reconciles run records, and settles their outcomes back
+ * onto the job (last-run fields, circuit breaker, alerts, dependency chaining).
+ * Retention is enforced by AJOSupervisor/AJOPurgeBatch: the log grows by one
+ * row per run and per refusal, so it must not be unbounded.
+ *
+ * Runs without sharing: it settles outcomes onto job records whatever their
+ * owner, from asynchronous contexts (executor, batch finish, heartbeat).
  */
-public with sharing class AJORunLogger {
+public without sharing class AJORunLogger {
 
     public static AJOJobRun__c open(AJOJob__c job, Datetime scheduledFor,
                                     String triggeredBy, Integer slot) {
@@ -101,13 +105,14 @@ public with sharing class AJORunLogger {
 
         Map<Id, AsyncApexJob> jobs = new Map<Id, AsyncApexJob>([
             SELECT Id, Status, ExtendedStatus, NumberOfErrors,
-                   JobItemsProcessed, TotalJobItems, CompletedDate
+                   JobItemsProcessed, TotalJobItems, CompletedDate, ApexClass.Name
             FROM   AsyncApexJob
             WHERE  Id IN :asyncIds
         ]);
 
         List<AJOJobRun__c> toUpdate = new List<AJOJobRun__c>();
         Map<Id, String> jobOutcome = new Map<Id, String>();
+        Map<Id, String> failureReason = new Map<Id, String>();
 
         for (AJOJobRun__c r : openRuns) {
             AsyncApexJob a = jobs.get((Id) r.AJO_AsyncApexJobId__c);
@@ -115,6 +120,23 @@ public with sharing class AJORunLogger {
             if (a.Status == 'Completed' || a.Status == 'Failed' || a.Status == 'Aborted') {
                 r.AJO_FinishedAt__c   = a.CompletedDate != null ? a.CompletedDate : Datetime.now();
                 r.AJO_DurationSec__c  = seconds(r.AJO_StartedAt__c, r.AJO_FinishedAt__c);
+                // The run still points at its executor. The executor always closes
+                // its run or re-points it at the async work it started, so an
+                // executor that finished while its run is still open died with an
+                // uncatchable exception (a governor limit, typically) that rolled
+                // back its own bookkeeping. Without this branch that failure would
+                // be invisible and would never count against the circuit breaker.
+                if (a.ApexClass != null && a.ApexClass.Name == 'AJOJobExecutor') {
+                    r.AJO_Status__c = 'Failed';
+                    r.AJO_ErrorMessage__c = truncate('The job\'s transaction ended without '
+                        + 'recording an outcome (' + a.Status + '). '
+                        + (String.isBlank(a.ExtendedStatus)
+                           ? 'Most often a governor limit was exceeded.' : a.ExtendedStatus), 4000);
+                    toUpdate.add(patch(r));
+                    jobOutcome.put(r.AJO_Job__c, 'Failed');
+                    failureReason.put(r.AJO_Job__c, r.AJO_ErrorMessage__c);
+                    continue;
+                }
                 r.AJO_ItemsProcessed__c = a.JobItemsProcessed;
                 r.AJO_ItemsFailed__c    = a.NumberOfErrors;
                 Boolean ok = (a.Status == 'Completed' && a.NumberOfErrors == 0);
@@ -137,11 +159,12 @@ public with sharing class AJORunLogger {
                 }
                 toUpdate.add(patch(r));
                 jobOutcome.put(r.AJO_Job__c, r.AJO_Status__c);
+                if (!ok) { failureReason.put(r.AJO_Job__c, r.AJO_ErrorMessage__c); }
             }
         }
         if (!toUpdate.isEmpty()) {
             update toUpdate;
-            settleJobs(jobOutcome);
+            settleJobs(jobOutcome, failureReason);
         }
         return toUpdate.size();
     }
@@ -187,7 +210,11 @@ public with sharing class AJORunLogger {
             run.AJO_ErrorMessage__c = itemsFailed + ' record(s) could not be processed.';
         }
         update patch(run);
-        settleJobs(new Map<Id, String>{ run.AJO_Job__c => run.AJO_Status__c });
+        settleJobs(new Map<Id, String>{ run.AJO_Job__c => run.AJO_Status__c },
+                   new Map<Id, String>{ run.AJO_Job__c => run.AJO_ErrorMessage__c });
+        // report() is called from a batch's finish(), outside any check, so it
+        // sends its own alerts.
+        AJOAlerts.flush();
         return true;
     }
 
@@ -197,42 +224,80 @@ public with sharing class AJORunLogger {
     }
 
     private static void settleJobs(Map<Id, String> outcomes) {
+        settleJobs(outcomes, new Map<Id, String>());
+    }
+
+    /**
+     * Applies run outcomes back onto their jobs: last-run fields, the circuit
+     * breaker and its alerts, window expiry, and dependency chaining.
+     *
+     * A job that is 'Queued' keeps that status: its NEXT occurrence is already
+     * waiting in an executor, and flipping it to Idle would let the overlap
+     * gate start yet another one.
+     */
+    private static void settleJobs(Map<Id, String> outcomes, Map<Id, String> reasons) {
         if (outcomes.isEmpty()) { return; }
         List<AJOJob__c> jobs = [
-            SELECT Id, AJO_Status__c, AJO_ConsecutiveFailures__c, AJO_MaxConsecutiveFailures__c,
-                   AJO_LastRunStatus__c, AJO_LastRunAt__c, AJO_LastDurationSec__c,
-                   AJO_Enabled__c, AJO_StartDate__c, AJO_EndDate__c, AJO_NextRunAt__c
+            SELECT Id, AJO_JobKey__c, AJO_Status__c, AJO_ConsecutiveFailures__c,
+                   AJO_MaxConsecutiveFailures__c, AJO_LastRunStatus__c, AJO_LastRunAt__c,
+                   AJO_LastDurationSec__c, AJO_Enabled__c, AJO_StartDate__c, AJO_EndDate__c,
+                   AJO_NextRunAt__c, AJO_NotifyEmails__c
             FROM   AJOJob__c
             WHERE  Id IN :outcomes.keySet()
         ];
+        Set<Id> succeeded = new Set<Id>();
         for (AJOJob__c j : jobs) {
             String outcome = outcomes.get(j.Id);
+            Boolean queued = j.AJO_Status__c == 'Queued';
             j.AJO_LastRunStatus__c = outcome;
             j.AJO_LastRunAt__c     = Datetime.now();
 
             if (outcome == 'Failed') {
-                j.AJO_ConsecutiveFailures__c =
-                    (j.AJO_ConsecutiveFailures__c == null ? 0 : j.AJO_ConsecutiveFailures__c) + 1;
-                Decimal cap = j.AJO_MaxConsecutiveFailures__c;
-                if (cap != null && cap > 0 && j.AJO_ConsecutiveFailures__c >= cap) {
-                    j.AJO_Status__c = 'Suspended';
-                } else {
-                    j.AJO_Status__c = 'Idle';
-                }
+                String reason = reasons.get(j.Id);
+                AJOLauncher.recordFailure(j, Datetime.now(), reason == null ? 'see the run record' : reason);
+                if (queued && j.AJO_Status__c != 'Suspended') { j.AJO_Status__c = 'Queued'; }
             } else {
                 j.AJO_ConsecutiveFailures__c = 0;
-                if (j.AJO_Status__c != 'Suspended') { j.AJO_Status__c = 'Idle'; }
+                if (j.AJO_Status__c != 'Suspended' && !queued) { j.AJO_Status__c = 'Idle'; }
+                if (outcome == 'Success') { succeeded.add(j.Id); }
             }
 
             // A job whose window closed while its last run was in flight settles
             // straight into Expired. Suspended outranks it: a circuit-broken job
             // still needs a human to look at it.
-            if (j.AJO_Status__c != 'Suspended' && AJOWindow.hasExpired(j)) {
+            if (j.AJO_Status__c != 'Suspended' && !queued && AJOWindow.hasExpired(j)) {
                 j.AJO_Status__c = 'Expired';
                 j.AJO_NextRunAt__c = null;
             }
         }
         update jobs;
+        chainDependents(succeeded);
+    }
+
+    /**
+     * Dependency chaining. When a job succeeds, every active dependent that
+     * asked to Run After Dependency is made due now, so the next check starts
+     * it (within one interval) instead of the child waiting for its own cron
+     * and finding the dependency stale.
+     */
+    @TestVisible
+    private static void chainDependents(Set<Id> parentIds) {
+        if (parentIds == null || parentIds.isEmpty()) { return; }
+        Datetime now = Datetime.now();
+        Set<String> blocked = AJOLauncher.NOT_SCHEDULABLE;
+        List<AJOJob__c> children = Database.query(
+            'SELECT Id, AJO_NextRunAt__c FROM AJOJob__c '
+            + 'WHERE AJO_DependsOnJobId__c IN :parentIds '
+            + '  AND AJO_RunAfterDependency__c = true '
+            + '  AND AJO_Status__c NOT IN :blocked '
+            + '  AND ' + AJOWindow.SOQL_FILTER);
+        List<AJOJob__c> toUpdate = new List<AJOJob__c>();
+        for (AJOJob__c c : children) {
+            if (c.AJO_NextRunAt__c == null || c.AJO_NextRunAt__c > now) {
+                toUpdate.add(new AJOJob__c(Id = c.Id, AJO_NextRunAt__c = now));
+            }
+        }
+        if (!toUpdate.isEmpty()) { update toUpdate; }
     }
 
     public static Decimal seconds(Datetime a, Datetime b) {

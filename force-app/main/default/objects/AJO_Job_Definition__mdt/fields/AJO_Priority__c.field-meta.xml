@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>AJO_Priority__c</fullName>
+    <description
+  >Lower runs first when a check has more due jobs than it can launch.</description>
+    <fieldManageability>DeveloperControlled</fieldManageability>
+    <label>Priority</label>
+    <precision>2</precision>
+    <required>false</required>
+    <scale>0</scale>
+    <type>Number</type>
+</CustomField>

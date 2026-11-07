@@ -5,6 +5,10 @@
         <visible>true</visible>
     </applicationVisibilities>
     <classAccesses>
+        <apexClass>AJOHealthResource</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+    <classAccesses>
         <apexClass>AJOAdminController</apexClass>
         <enabled>true</enabled>
     </classAccesses>
@@ -90,6 +94,171 @@
     </customPermissions>
     <description>Apex Job Orchestration Admin. Required fields carry implicit access and are not listed.</description>
     <fieldPermissions>
+        <editable>false</editable>
+        <field>AJOJob__c.AJO_DefinitionManaged__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>AJOJob__c.AJO_DefinitionHash__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>AJOJob__c.AJO_DefinitionError__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>AJOJob__c.AJO_OpsPaused__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>AJOJob__c.AJO_CutoverAt__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>AJOJob__c.AJO_DependsOnKey__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>AJOJob__c.AJO_RunAfterDependency__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>AJOJob__c.AJO_AllowsCallouts__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>AJOSetting__c.AJO_LastHeartbeatAt__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>AJOSetting__c.AJO_MaxLaunchesPerCheck__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>AJOSetting__c.AJO_FlexQueueCap__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>AJOSetting__c.AJO_AllowUnmanagedJobs__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>AJOSetting__c.AJO_StaleHeartbeatMinutes__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>AJO_Job_Definition__mdt.AJO_Active__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>AJO_Job_Definition__mdt.AJO_ApexClass__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>AJO_Job_Definition__mdt.AJO_ExecutionType__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>AJO_Job_Definition__mdt.AJO_CronExpression__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>AJO_Job_Definition__mdt.AJO_TimeZone__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>AJO_Job_Definition__mdt.AJO_BatchSize__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>AJO_Job_Definition__mdt.AJO_Parameters__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>AJO_Job_Definition__mdt.AJO_OverlapPolicy__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>AJO_Job_Definition__mdt.AJO_Priority__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>AJO_Job_Definition__mdt.AJO_MaxRuntimeMinutes__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>AJO_Job_Definition__mdt.AJO_MaxConsecutiveFailures__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>AJO_Job_Definition__mdt.AJO_DependsOn__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>AJO_Job_Definition__mdt.AJO_RunAfterDependency__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>AJO_Job_Definition__mdt.AJO_StartDate__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>AJO_Job_Definition__mdt.AJO_EndDate__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>AJO_Job_Definition__mdt.AJO_DryRun__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>AJO_Job_Definition__mdt.AJO_AllowsCallouts__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>AJO_Job_Definition__mdt.AJO_NotifyEmails__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>AJO_Job_Definition__mdt.AJO_ReplacesCronJobName__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>AJO_Job_Definition__mdt.AJO_Description__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
         <editable>true</editable>
         <field>AJOJobRun__c.AJO_AsyncApexJobId__c</field>
         <readable>true</readable>
@@ -160,7 +329,7 @@
         <readable>true</readable>
     </fieldPermissions>
     <fieldPermissions>
-        <editable>true</editable>
+        <editable>false</editable>
         <field>AJOJob__c.AJO_BatchSize__c</field>
         <readable>true</readable>
     </fieldPermissions>
@@ -170,17 +339,17 @@
         <readable>true</readable>
     </fieldPermissions>
     <fieldPermissions>
-        <editable>true</editable>
+        <editable>false</editable>
         <field>AJOJob__c.AJO_DependsOnJobId__c</field>
         <readable>true</readable>
     </fieldPermissions>
     <fieldPermissions>
-        <editable>true</editable>
+        <editable>false</editable>
         <field>AJOJob__c.AJO_Description__c</field>
         <readable>true</readable>
     </fieldPermissions>
     <fieldPermissions>
-        <editable>true</editable>
+        <editable>false</editable>
         <field>AJOJob__c.AJO_DryRun__c</field>
         <readable>true</readable>
     </fieldPermissions>
@@ -190,7 +359,7 @@
         <readable>true</readable>
     </fieldPermissions>
     <fieldPermissions>
-        <editable>true</editable>
+        <editable>false</editable>
         <field>AJOJob__c.AJO_JobKey__c</field>
         <readable>true</readable>
     </fieldPermissions>
@@ -240,12 +409,12 @@
         <readable>true</readable>
     </fieldPermissions>
     <fieldPermissions>
-        <editable>true</editable>
+        <editable>false</editable>
         <field>AJOJob__c.AJO_MaxConsecutiveFailures__c</field>
         <readable>true</readable>
     </fieldPermissions>
     <fieldPermissions>
-        <editable>true</editable>
+        <editable>false</editable>
         <field>AJOJob__c.AJO_MaxRuntimeMinutes__c</field>
         <readable>true</readable>
     </fieldPermissions>
@@ -255,17 +424,17 @@
         <readable>true</readable>
     </fieldPermissions>
     <fieldPermissions>
-        <editable>true</editable>
+        <editable>false</editable>
         <field>AJOJob__c.AJO_NotifyEmails__c</field>
         <readable>true</readable>
     </fieldPermissions>
     <fieldPermissions>
-        <editable>true</editable>
+        <editable>false</editable>
         <field>AJOJob__c.AJO_OverlapPolicy__c</field>
         <readable>true</readable>
     </fieldPermissions>
     <fieldPermissions>
-        <editable>true</editable>
+        <editable>false</editable>
         <field>AJOJob__c.AJO_Parameters__c</field>
         <readable>true</readable>
     </fieldPermissions>
@@ -275,7 +444,7 @@
         <readable>true</readable>
     </fieldPermissions>
     <fieldPermissions>
-        <editable>true</editable>
+        <editable>false</editable>
         <field>AJOJob__c.AJO_Priority__c</field>
         <readable>true</readable>
     </fieldPermissions>
@@ -290,7 +459,7 @@
         <readable>true</readable>
     </fieldPermissions>
     <fieldPermissions>
-        <editable>true</editable>
+        <editable>false</editable>
         <field>AJOJob__c.AJO_TimeZoneSidKey__c</field>
         <readable>true</readable>
     </fieldPermissions>
@@ -300,12 +469,12 @@
         <readable>true</readable>
     </fieldPermissions>
     <fieldPermissions>
-        <editable>true</editable>
+        <editable>false</editable>
         <field>AJOJob__c.AJO_StartDate__c</field>
         <readable>true</readable>
     </fieldPermissions>
     <fieldPermissions>
-        <editable>true</editable>
+        <editable>false</editable>
         <field>AJOJob__c.AJO_EndDate__c</field>
         <readable>true</readable>
     </fieldPermissions>

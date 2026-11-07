@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>AJO_AllowUnmanagedJobs__c</fullName>
+    <defaultValue>false</defaultValue>
+    <description>Transition switch. When off (default), only jobs backed by an AJO_Job_Definition__mdt record can run. Turn on only while migrating existing AJOJob__c configurations.</description>
+    <label>Allow Unmanaged Jobs</label>
+    <type>Checkbox</type>
+</CustomField>

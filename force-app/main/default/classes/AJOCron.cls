@@ -6,14 +6,20 @@
  * Not supported: L W # — these throw rather than guessing.
  *
  * Every expression is evaluated in an explicit time zone, never in the running
- * user's. That is deliberate: the org's schedules are Asia/Kolkata decisions and
- * must not shift because a different user saved the record.
+ * user's: a schedule must not shift because a different user saved or ran it.
+ * A blank zone means AJOConfig.defaultTimeZone() — the AJOSetting__c value if
+ * set, otherwise the org's default time zone. DST transitions follow the
+ * platform TimeZone rules for that zone.
  */
 public with sharing class AJOCron {
 
     public class CronException extends Exception {}
 
-    public static final String DEFAULT_TZ = 'Asia/Kolkata';
+    /**
+     * Deprecated: no longer used as a fallback (it was one org's zone). Kept so
+     * code referencing the constant still compiles. Use AJOConfig.defaultTimeZone().
+     */
+    public static final String DEFAULT_TZ = 'GMT';
     private static final Integer HORIZON_DAYS = 1500;
 
     private static final Map<String, Integer> MONTH_NAMES = new Map<String, Integer>{
@@ -168,7 +174,7 @@ public with sharing class AJOCron {
     }
 
     public static Datetime next(Parsed p, Datetime after, String tzId) {
-        TimeZone tz = TimeZone.getTimeZone(String.isBlank(tzId) ? DEFAULT_TZ : tzId);
+        TimeZone tz = TimeZone.getTimeZone(String.isBlank(tzId) ? AJOConfig.defaultTimeZone() : tzId);
         Datetime local = toLocalFields(after, tz);
 
         Date startDate = Date.newInstance(local.yearGmt(), local.monthGmt(), local.dayGmt());
@@ -259,7 +265,7 @@ public with sharing class AJOCron {
     public static String formatLocal(Datetime instant, String tzId) {
         if (instant == null) { return ''; }
         return instant.format('yyyy-MM-dd HH:mm:ss',
-                              String.isBlank(tzId) ? DEFAULT_TZ : tzId);
+                              String.isBlank(tzId) ? AJOConfig.defaultTimeZone() : tzId);
     }
 
     // ------------------------------------------------------------- describe

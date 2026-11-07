@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<CustomMetadata
+  xmlns="http://soap.sforce.com/2006/04/metadata"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+>
+    <label>Demo - Batch with configured scope</label>
+    <protected>false</protected>
+    <values>
+        <field>AJO_Active__c</field>
+        <value xsi:type="xsd:boolean">false</value>
+    </values>
+    <values>
+        <field>AJO_DryRun__c</field>
+        <value xsi:type="xsd:boolean">true</value>
+    </values>
+    <values>
+        <field>AJO_TimeZone__c</field>
+        <value xsi:type="xsd:string">America/New_York</value>
+    </values>
+    <values>
+        <field>AJO_OverlapPolicy__c</field>
+        <value xsi:type="xsd:string">Skip</value>
+    </values>
+    <values>
+        <field>AJO_MaxRuntimeMinutes__c</field>
+        <value xsi:type="xsd:double">60</value>
+    </values>
+    <values>
+        <field>AJO_MaxConsecutiveFailures__c</field>
+        <value xsi:type="xsd:double">3</value>
+    </values>
+    <values>
+        <field>AJO_Priority__c</field>
+        <value xsi:type="xsd:double">2</value>
+    </values>
+    <values>
+        <field>AJO_ApexClass__c</field>
+        <value xsi:type="xsd:string">AJODemoBatch</value>
+    </values>
+    <values>
+        <field>AJO_ExecutionType__c</field>
+        <value xsi:type="xsd:string">Batch</value>
+    </values>
+    <values>
+        <field>AJO_CronExpression__c</field>
+        <value xsi:type="xsd:string">0 30 1 * * ?</value>
+    </values>
+    <values>
+        <field>AJO_BatchSize__c</field>
+        <value xsi:type="xsd:double">200</value>
+    </values>
+    <values>
+        <field>AJO_Description__c</field>
+        <value
+      xsi:type="xsd:string"
+    >Sample Batch launched by the executor and reconciled against AsyncApexJob. Ships inactive.</value>
+    </values>
+</CustomMetadata>

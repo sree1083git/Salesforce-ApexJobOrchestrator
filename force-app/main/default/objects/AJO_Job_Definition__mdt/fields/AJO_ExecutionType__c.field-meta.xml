@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>AJO_ExecutionType__c</fullName>
+    <description
+  >How the class is started. Runnable = implements AJORunnable; the others call existing classes unchanged.</description>
+    <fieldManageability>DeveloperControlled</fieldManageability>
+    <label>Execution Type</label>
+    <required>false</required>
+    <type>Picklist</type>
+    <valueSet><restricted>true</restricted><valueSetDefinition><sorted
+      >false</sorted><value><fullName>Runnable</fullName><default
+        >true</default><label>Runnable</label></value><value><fullName
+        >Batch</fullName><default>false</default><label
+        >Batch</label></value><value><fullName>Queueable</fullName><default
+        >false</default><label>Queueable</label></value><value><fullName
+        >Legacy Schedulable</fullName><default>false</default><label
+        >Legacy Schedulable</label></value></valueSetDefinition></valueSet>
+</CustomField>

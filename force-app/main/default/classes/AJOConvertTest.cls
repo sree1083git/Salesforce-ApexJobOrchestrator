@@ -8,6 +8,19 @@
 @IsTest
 private class AJOConvertTest {
 
+    /**
+     * These tests exercise the engine with directly-inserted AJOJob__c rows
+     * (unmanaged jobs), so they run in the migration mode that allows them.
+     * The definition-backed (managed) path is covered by AJODefinitionSyncTest,
+     * AJOEngineHardeningTest and AJODefinitionValidationTest.
+     */
+    @TestSetup
+    static void allowUnmanagedJobs() {
+        insert new AJOSetting__c(AJO_AllowUnmanagedJobs__c = true, AJO_HeartbeatMinutes__c = 10,
+                                 AJO_MaxConcurrentBatches__c = 5, AJO_EnableDeferral__c = true);
+    }
+
+
     private static final String LIVE    = 'ZZ Test Convertible';
     private static final String BLOCKED = 'ZZ Test Unreadable Cron';
 

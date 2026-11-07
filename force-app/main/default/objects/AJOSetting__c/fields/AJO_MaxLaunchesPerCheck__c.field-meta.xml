@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>AJO_MaxLaunchesPerCheck__c</fullName>
+    <description>Most jobs one check starts. The rest wait for the next check (late, never early). Blank = 40; hard-capped by the queueable limit.</description>
+    <externalId>false</externalId>
+    <label>Max Launches Per Check</label>
+    <precision>3</precision>
+    <required>false</required>
+    <scale>0</scale>
+    <type>Number</type>
+</CustomField>

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>AJO_AllowsCallouts__c</fullName>
+    <defaultValue>false</defaultValue>
+    <description
+  >Runnable makes HTTP callouts. The executor then skips its savepoint (a savepoint blocks callouts), so the job owns its own partial-failure handling.</description>
+    <fieldManageability>DeveloperControlled</fieldManageability>
+    <label>Allows Callouts</label>
+    <type>Checkbox</type>
+</CustomField>

@@ -1,31 +1,104 @@
 /**
- * The piece that makes the framework safe to leave alone.
- * Re-arms missing heartbeats, closes out async runs, reaps stuck ones,
- * retires jobs whose activation window has closed, and enforces log retention
- * against an org already over its storage limit.
+ * The piece that makes the framework safe to leave alone. Runs hourly at :05.
+ *
+ * Every step is isolated: each runs inside its own savepoint and try/catch,
+ * so one failing step is rolled back, alerted, and does not stop the others.
+ * The order is deliberate:
+ *
+ *   1. heal        re-create missing heartbeats FIRST — self-healing must never
+ *                  be skipped because a later step failed (previously re-arm
+ *                  ran last and a purge failure took it down too);
+ *   2. watchdog    alert HEARTBEAT_STALE when no check has run recently;
+ *   3. sync        project definitions (same as each heartbeat does);
+ *   4. reconcile   close out finished async runs;
+ *   5. reap        time out overrunning runs AND abort their async job, so the
+ *                  next occurrence cannot overlap a job still running;
+ *   6. expire      retire jobs past their End Date;
+ *   7. unqueue     clear queued markers whose run never arrived;
+ *   8. purge       hand log retention to AJOPurgeBatch, so deletes never
+ *                  compete with the steps above for the 10,000 DML-row limit.
+ *
+ * Runs without sharing: framework infrastructure.
  */
-global with sharing class AJOSupervisor implements Schedulable {
+global without sharing class AJOSupervisor implements Schedulable {
 
     global void execute(SchedulableContext sc) { sweep(); }
 
     public static Map<String, Object> sweep() {
         Map<String, Object> result = new Map<String, Object>();
-        result.put('reconciled', safeReconcile());
-        result.put('stuck',      reapStuck());
-        result.put('expired',    expireLapsed());
-        result.put('purged',     purge());
-        result.put('unqueued',   clearLapsedQueue());
-        result.put('rearmed',    AJOInstaller.rearmMissing());
-        result.put('slotsUsed',  AJOInstaller.scheduledApexSlotsUsed());
+        try {
+            result.put('rearmed',    step('heal',      new HealStep()));
+            result.put('stale',      step('watchdog',  new WatchdogStep()));
+            result.put('synced',     step('sync',      new SyncStep()));
+            result.put('reconciled', step('reconcile', new ReconcileStep()));
+            result.put('stuck',      step('reap',      new ReapStep()));
+            result.put('expired',    step('expire',    new ExpireStep()));
+            result.put('unqueued',   step('unqueue',   new UnqueueStep()));
+            result.put('purged',     step('purge',     new PurgeStep()));
+            result.put('slotsUsed',  AJOInstaller.scheduledApexSlotsUsed());
+        } finally {
+            AJOAlerts.flush();
+        }
         return result;
     }
 
-    private static Integer safeReconcile() {
-        try { return AJORunLogger.reconcile(); }
-        catch (Exception e) { return -1; }
+    // ------------------------------------------------------------ step runner
+
+    private interface Step { Object run(); }
+
+    /** Runs one step in a savepoint; a failure is rolled back, alerted, and returns -1. */
+    private static Object step(String name, Step s) {
+        Savepoint sp = Database.setSavepoint();
+        try {
+            return s.run();
+        } catch (Exception e) {
+            Database.rollback(sp);
+            AJOAlerts.raise(AJOAlerts.ERROR, 'MAINTENANCE_FAILED', null,
+                'Maintenance step "' + name + '" failed and was rolled back: '
+                + e.getTypeName() + ': ' + e.getMessage());
+            return -1;
+        }
     }
 
-    /** A run past its job's MaxRuntimeMinutes is marked Stuck and the job freed. */
+    private class HealStep implements Step { public Object run() { return AJOInstaller.healSafely(); } }
+    private class WatchdogStep implements Step { public Object run() { return checkHeartbeat(Datetime.now()); } }
+    private class SyncStep implements Step { public Object run() { return AJODefinitionSync.syncSafely().summary(); } }
+    private class ReconcileStep implements Step { public Object run() { return AJORunLogger.reconcile(); } }
+    private class ReapStep implements Step { public Object run() { return reapStuck(); } }
+    private class ExpireStep implements Step { public Object run() { return expireLapsed(); } }
+    private class UnqueueStep implements Step { public Object run() { return clearLapsedQueue(); } }
+    private class PurgeStep implements Step { public Object run() { return purge(); } }
+
+    // ---------------------------------------------------------------- steps
+
+    /**
+     * True (and an alert raised) when the last heartbeat is older than the
+     * stale threshold while the framework is installed and not paused. With
+     * self-healing in every check, a stale heartbeat usually means the
+     * scheduling user was deactivated or lost access — something only a
+     * person can fix.
+     */
+    public static Boolean checkHeartbeat(Datetime now) {
+        if (AJOConfig.killSwitch() || AJOInstaller.ownTriggers().isEmpty()) { return false; }
+        Datetime last = AJOConfig.lastHeartbeatAt();
+        Integer threshold = AJOConfig.staleHeartbeatMinutes();
+        if (last != null && last.addMinutes(threshold) >= now) { return false; }
+        AJOAlerts.raise(AJOAlerts.ERROR, 'HEARTBEAT_STALE', null,
+            (last == null
+                ? 'No scheduled check has ever recorded a heartbeat.'
+                : 'The last scheduled check ran at ' + last.formatGmt('yyyy-MM-dd HH:mm') + ' GMT, more than '
+                  + threshold + ' minutes ago.')
+            + ' No orchestrated job is running. Check that the user who installed the '
+            + 'scheduler is active and still has the Apex Job Orchestration Admin permission set, '
+            + 'then re-install from the console.');
+        return true;
+    }
+
+    /**
+     * A run past its job's Max Runtime is marked Stuck, its async job aborted,
+     * and the job freed. Aborting matters: freeing the job while the batch kept
+     * running let the next occurrence start on top of it.
+     */
     public static Integer reapStuck() {
         List<AJOJobRun__c> openRuns = [
             SELECT Id, AJO_Job__c, AJO_StartedAt__c, AJO_FinishedAt__c, AJO_Status__c,
@@ -45,15 +118,16 @@ global with sharing class AJOSupervisor implements Schedulable {
         for (AJOJobRun__c r : openRuns) {
             Decimal cap = r.AJO_Job__r.AJO_MaxRuntimeMinutes__c;
             Integer limitMins = (cap == null || cap <= 0) ? 240 : cap.intValue();
-            if (r.AJO_StartedAt__c.addMinutes(limitMins) < now) {
-                r.AJO_Status__c       = 'Stuck';
-                r.AJO_FinishedAt__c   = now;
-                r.AJO_DurationSec__c  = AJORunLogger.seconds(r.AJO_StartedAt__c, now);
-                r.AJO_ErrorMessage__c = 'Exceeded ' + limitMins
-                                    + ' minutes without completing. Released by the supervisor.';
-                stuck.add(AJORunLogger.patch(r));
-                jobIds.add(r.AJO_Job__c);
-            }
+            if (r.AJO_StartedAt__c.addMinutes(limitMins) >= now) { continue; }
+
+            String aborted = abortQuietly(r.AJO_AsyncApexJobId__c);
+            r.AJO_Status__c       = 'Stuck';
+            r.AJO_FinishedAt__c   = now;
+            r.AJO_DurationSec__c  = AJORunLogger.seconds(r.AJO_StartedAt__c, now);
+            r.AJO_ErrorMessage__c = 'Exceeded ' + limitMins + ' minutes without completing. '
+                + aborted + ' Released by the supervisor.';
+            stuck.add(AJORunLogger.patch(r));
+            jobIds.add(r.AJO_Job__c);
         }
         if (stuck.isEmpty()) { return 0; }
         update stuck;
@@ -66,13 +140,27 @@ global with sharing class AJOSupervisor implements Schedulable {
         return stuck.size();
     }
 
+    /** Aborts an async job if it is still alive; describes what happened. */
+    private static String abortQuietly(String asyncId) {
+        if (String.isBlank(asyncId)) { return 'No async job to abort.'; }
+        try {
+            List<AsyncApexJob> a = [
+                SELECT Id, Status FROM AsyncApexJob WHERE Id = :asyncId LIMIT 1
+            ];
+            if (a.isEmpty()) { return 'Its async job no longer exists.'; }
+            if (a[0].Status == 'Completed' || a[0].Status == 'Failed' || a[0].Status == 'Aborted') {
+                return 'Its async job had already ended (' + a[0].Status + ').';
+            }
+            System.abortJob(a[0].Id);
+            return 'Its async job ' + a[0].Id + ' was aborted.';
+        } catch (Exception e) {
+            return 'Its async job could not be aborted: ' + e.getMessage() + '.';
+        }
+    }
+
     /**
-     * Retires jobs whose End Date has passed.
-     *
-     * The dispatcher already refuses to launch them, so this is not what makes
-     * the window safe — it is what makes the window visible. Without it a job
-     * that stopped in March still reads as Idle in October, and nobody can tell
-     * a finished ten-day task from one that is quietly broken.
+     * Retires jobs whose End Date has passed. The dispatcher already refuses
+     * them; this makes a finished job LOOK finished rather than reading Idle.
      */
     public static Integer expireLapsed() {
         Date today = Date.today();
@@ -81,7 +169,7 @@ global with sharing class AJOSupervisor implements Schedulable {
             FROM   AJOJob__c
             WHERE  AJO_EndDate__c != null
               AND  AJO_EndDate__c < :today
-              AND  AJO_Status__c NOT IN ('Expired', 'Running', 'Suspended')
+              AND  AJO_Status__c NOT IN ('Expired', 'Running', 'Queued', 'Suspended', 'Retired', 'Invalid')
             LIMIT  2000
         ];
         if (lapsed.isEmpty()) { return 0; }
@@ -94,13 +182,11 @@ global with sharing class AJOSupervisor implements Schedulable {
     }
 
     /**
-      * Clears queued markers whose instant is long past.
-      *
-      * A deferred run normally clears its own marker. If the platform ever drops
-      * the queueable, the marker would otherwise leave the console advertising a
-      * run that is never coming — the console trusts this field to say "queued
-      * and about to start".
-      */
+     * Clears queued markers whose instant is long past. An executor normally
+     * clears its own marker; if the platform ever drops the queueable, the
+     * marker would otherwise leave the console advertising a run that is never
+     * coming.
+     */
     public static Integer clearLapsedQueue() {
         Datetime cutoff = Datetime.now().addMinutes(-30);
         List<AJOJob__c> stale = [
@@ -119,22 +205,19 @@ global with sharing class AJOSupervisor implements Schedulable {
         return stale.size();
     }
 
-    /** Retention. Without this the log reaches ~500 MB a year. */
+    /**
+     * Starts AJOPurgeBatch unless one is already running. Returns 1 when a
+     * purge was started, 0 otherwise. The batch deletes in chunks, so no single
+     * transaction approaches the DML row limit however large the log grows.
+     */
     public static Integer purge() {
-        Datetime okCutoff   = Datetime.now().addDays(-AJOConfig.retentionSuccessDays());
-        Datetime failCutoff = Datetime.now().addDays(-AJOConfig.retentionFailureDays());
-
-        List<AJOJobRun__c> old = [
-            SELECT Id
-            FROM   AJOJobRun__c
-            WHERE  (AJO_Status__c IN ('Success', 'Skipped', 'Dry Run', 'Throttled')
-                        AND CreatedDate < :okCutoff)
-               OR  (AJO_Status__c IN ('Failed', 'Stuck') AND CreatedDate < :failCutoff)
-            LIMIT  9000
+        Integer running = [
+            SELECT COUNT() FROM AsyncApexJob
+            WHERE  JobType = 'BatchApex' AND ApexClass.Name = 'AJOPurgeBatch'
+              AND  Status IN ('Holding', 'Queued', 'Preparing', 'Processing')
         ];
-        if (old.isEmpty()) { return 0; }
-        delete old;
-        Database.emptyRecycleBin(old);
-        return old.size();
+        if (running > 0) { return 0; }
+        Database.executeBatch(new AJOPurgeBatch(), AJOPurgeBatch.SCOPE);
+        return 1;
     }
 }

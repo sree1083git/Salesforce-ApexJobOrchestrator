@@ -3,7 +3,7 @@
     <fullName>AJO_Parameters__c</fullName>
     <description>JSON passed to Runnable jobs, so one class can serve many configured jobs.</description>
     <label>Parameters (JSON)</label>
-    <length>4000</length>
+    <length>32768</length>
     <trackTrending>false</trackTrending>
     <type>LongTextArea</type>
     <visibleLines>5</visibleLines>

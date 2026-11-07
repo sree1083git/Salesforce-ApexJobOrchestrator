@@ -10,7 +10,7 @@
  * Passing null as the SchedulableContext is safe here: all 89 Schedulable
  * implementations in the source org were checked and none dereferences it.
  */
-public with sharing class AJOLegacyAdapter {
+public inherited sharing class AJOLegacyAdapter {
 
     public class UnsupportedJobException extends Exception {}
 
