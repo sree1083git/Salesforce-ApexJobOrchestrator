@@ -32,7 +32,8 @@ The takeover must never leave a job running twice or not at all. AJO makes it at
 2. Commit and deploy them.
 3. At the next check, the sync creates each job's state and, **in the same transaction, last**,
    aborts the named Setup job. If the abort fails, the savepoint rolls back the state too and the
-   Setup job keeps running (alert `SYNC_FAILED`). The takeover happens once (`AJO_CutoverAt__c`).
+   Setup job keeps running (alert `SYNC_FAILED`, and no `CUTOVER_DONE`). The takeover happens once
+   (`AJO_CutoverAt__c`); `CUTOVER_DONE` confirms it only after the abort succeeded.
 4. Watch two cycles in Dry Run on the Activity tab. Values passed to the class when it was
    scheduled cannot be recovered from the platform, so confirm the class's defaults are right.
 5. Release Dry Run off.

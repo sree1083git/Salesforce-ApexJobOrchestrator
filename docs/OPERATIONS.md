@@ -30,7 +30,7 @@ but idle.
 | --- | --- | --- |
 | Stop one job now | Jobs → Pause | `AJO_OpsPaused__c` = true; survives syncs; queued run stands down |
 | Resume it | Jobs → Resume | Recomputes Next Run (refused if the definition is inactive) |
-| Run it now | Jobs → Run it now | Executor in its own transaction, **as you** |
+| Run it now | Jobs → Run it now | Executor in its own transaction, **as you**; refused while the job is Queued/Running (unless overlap policy is Allow); stands down if the job is paused |
 | Run it as the scheduler | Jobs → Run at next check | Due now; the next check runs it as the scheduling user |
 | Retry a failure | Errors → Run it again | Same as Run it now |
 | Stop everything | Header → Pause all jobs | Kill switch; nothing launches; queued runs stand down; heartbeats keep stamping |
@@ -56,7 +56,7 @@ Emails.
 | `SLOTS_REARMED` | WARNING | A missing slot was re-created. Find out who removed it. |
 | `LAUNCH_BACKLOG` | WARNING | More jobs due than one check launches. Spread schedules or raise the cap carefully. |
 | `RECONCILE_FAILED` | WARNING | Closing finished runs failed; retried next check. |
-| `CUTOVER_DONE`, `DEFINITION_RETIRED` | INFO | Audit trail. |
+| `CUTOVER_DONE`, `DEFINITION_RETIRED` | INFO | Audit trail. `CUTOVER_DONE` is sent only after the Setup job was aborted. |
 
 **External health check** — `GET /services/apexrest/ajo/health` (integration user with the Viewer
 set). 200 + `healthy:true`, or 503 with `problems`. Alert on 503 or on failure to connect. This is
@@ -69,6 +69,7 @@ failures in 24h / suspended jobs.
 
 | Symptom | Look at | Likely cause |
 | --- | --- | --- |
+| "Already running" on Run now | Job status, Activity | A run is Queued/Running and the overlap policy forbids a second one; wait, or use Run at next check |
 | Job never runs | Next up tab verdict | Inactive or invalid definition, ops pause, outside window, dependency unmet, Dry Run |
 | Run stuck in Running | Activity, Apex Jobs | Long batch (reaped after Max Runtime, async job aborted); executor died (closed as Failed at next check) |
 | "Throttled" repeatedly | Setup diagnostics: batches in flight, flex queue | Five active batches or flex queue at cap; another process is hogging batch capacity |

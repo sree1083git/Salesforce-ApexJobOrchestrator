@@ -54,8 +54,47 @@ scheduled Apex runs as the user who scheduled it, so every job inherits that use
 3. The next check (or **Setup → Sync definitions now**) creates the job's state. Start new jobs in
    **Dry Run**; turn it off in a later release once a cycle looks right.
 
-Pause/resume and Run now work from the console without a release; *what* runs and *when* changes
+Pause/resume and Run now (refused while a run is already in flight) work from the console without a release; *what* runs and *when* changes
 only through a release.
+
+## How it fits together
+
+```mermaid
+flowchart TB
+  DEF[("AJO_Job_Definition__mdt<br/><b>what · how · when</b><br/>changes only by release")]
+  VT["AJODefinitionValidationTest<br/>fails the deploy on a bad definition"]
+  VT -. validates .-> DEF
+
+  subgraph SLOTS["7 scheduled Apex slots (of 100)"]
+    direction LR
+    HB["AJODispatcher ×6<br/>every 10 min"]
+    SUP["AJOSupervisor<br/>hourly"]
+  end
+
+  subgraph CHECK["One check (no job code runs here)"]
+    direction LR
+    SYNC["1 · AJODefinitionSync<br/>definition → state"] --> REC["2 · AJORunLogger<br/>reconcile finished runs"] --> LAUNCH["3 · AJOLauncher<br/>gates · budget · bulk DML"]
+  end
+
+  DEF --> SYNC
+  HB --> CHECK
+  LAUNCH -- "enqueue, delayed to exact minute" --> EXEC["AJOJobExecutor<br/>one queueable per job"]
+  EXEC -- "class read from definition" --> JOB["Your Apex class<br/>Runnable · Batch · Queueable · Schedulable"]
+
+  subgraph DATA["Runtime data"]
+    direction LR
+    STATE[("AJOJob__c<br/>state")]
+    RUNS[("AJOJobRun__c<br/>log")]
+  end
+  CHECK <--> DATA
+  EXEC -- "outcome fields only" --> DATA
+
+  SUP -. "heal slots · watchdog · reap · purge" .-> DATA
+  CON["Apex Job Console<br/>pause · Run now · Run at next check"] -- "operate, never define" --> STATE
+  CHECK & EXEC & SUP --> ALERT["AJO_Alert__e + email<br/>GET /ajo/health"]
+```
+
+More diagrams (a check step by step, job states) in [ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## The moving parts
 

@@ -7,6 +7,46 @@ The usual pattern — one `Schedulable` wrapper and one cron entry per job — t
 release blocker. The limit counts **cron entries**, not jobs. AJO schedules a small, fixed set of
 entries and describes the jobs as data.
 
+## At a glance
+
+```mermaid
+flowchart TB
+  DEF[("AJO_Job_Definition__mdt<br/><b>what · how · when</b><br/>changes only by release")]
+  VT["AJODefinitionValidationTest<br/>fails the deploy on a bad definition"]
+  VT -. validates .-> DEF
+
+  subgraph SLOTS["7 scheduled Apex slots (of 100)"]
+    direction LR
+    HB["AJODispatcher ×6<br/>every 10 min"]
+    SUP["AJOSupervisor<br/>hourly"]
+  end
+
+  subgraph CHECK["One check (no job code runs here)"]
+    direction LR
+    SYNC["1 · AJODefinitionSync<br/>definition → state"] --> REC["2 · AJORunLogger<br/>reconcile finished runs"] --> LAUNCH["3 · AJOLauncher<br/>gates · budget · bulk DML"]
+  end
+
+  DEF --> SYNC
+  HB --> CHECK
+  LAUNCH -- "enqueue, delayed to exact minute" --> EXEC["AJOJobExecutor<br/>one queueable per job"]
+  EXEC -- "class read from definition" --> JOB["Your Apex class<br/>Runnable · Batch · Queueable · Schedulable"]
+
+  subgraph DATA["Runtime data"]
+    direction LR
+    STATE[("AJOJob__c<br/>state")]
+    RUNS[("AJOJobRun__c<br/>log")]
+  end
+  CHECK <--> DATA
+  EXEC -- "outcome fields only" --> DATA
+
+  SUP -. "heal slots · watchdog · reap · purge" .-> DATA
+  CON["Apex Job Console<br/>pause · Run now · Run at next check"] -- "operate, never define" --> STATE
+  CHECK & EXEC & SUP --> ALERT["AJO_Alert__e + email<br/>GET /ajo/health"]
+```
+
+Diagram sources and PNG renderings live in [`docs/diagrams`](diagrams/) (`overview`, `check`,
+`states`).
+
 ## The hybrid model
 
 | Layer | Object | Changes by | Holds |
@@ -60,6 +100,39 @@ five-minute design give five-minute marks.
    runs in the check's transaction.**
 8. **Flush alerts**.
 
+```mermaid
+sequenceDiagram
+  autonumber
+  participant P as Platform scheduler
+  participant D as AJODispatcher (check)
+  participant S as AJODefinitionSync
+  participant L as AJOLauncher
+  participant X as AJOJobExecutor
+  participant J as Job class
+  P->>D: fires at :00/:10/…/:50
+  D->>D: stamp heartbeat · heal slots
+  alt kill switch on
+    D-->>P: stop (heartbeat still stamped)
+  end
+  D->>S: syncSafely() (savepoint)
+  S-->>D: state aligned, takeover abort last
+  D->>D: reconcile finished async runs
+  D->>L: launch(selectDue(now … now+10))
+  L->>L: gates: window · dependency · overlap · dry run · budget · throttle
+  L->>L: bulk insert runs · mark Queued · advance Next Run
+  L->>X: enqueue with delay to exact minute
+  Note over D,L: no job code runs in the check
+  X->>X: re-check: pause · definition · window · ownership · capacity
+  alt must stand down
+    X->>X: close run Skipped/Throttled, release marker
+  else runs
+    X->>J: execute (savepoint unless callouts)
+    J-->>X: success / exception / async id
+    X->>X: write run outcome + outcome fields only
+  end
+  Note over X: governor-limit death → next check's reconcile closes run as Failed
+```
+
 ### Gates, in order
 
 | Gate | Outcome when refused |
@@ -70,8 +143,11 @@ five-minute design give five-minute marks.
 | Dependency: parent's latest finished run succeeded **after this job last ran** | `Skipped`, advance |
 | Overlap: previous occurrence still `Queued`/`Running` | `Skipped`; advance unless policy is Queue |
 | Dry run | `Dry Run`, advance |
-| Batch throttle | `Throttled`; Next Run untouched (next check retries) |
 | Launch budget | held silently; Next Run untouched; `LAUNCH_BACKLOG` alert |
+| Batch throttle | `Throttled`; Next Run untouched (next check retries) |
+
+The budget is checked before the throttle, so a job held for the budget never takes batch capacity
+that this check would then leave unused.
 
 ### Bulk and bounded
 
@@ -92,7 +168,9 @@ resync after queueing hands the occurrence back to the heartbeat — running it 
 twice). For batch work it re-claims capacity; if full, it records `Throttled` and hands the
 occurrence back.
 
-Then it overlays the definition onto the job and runs it:
+Then it overlays the definition onto the job and runs it. The overlay is inside the job's
+try/catch: a definition removed, deactivated or invalid between queueing and starting is recorded as
+a `Failed` run, never an uncaught executor failure that leaves the job marked `Queued`.
 
 | Execution type | How it runs | Outcome known |
 | --- | --- | --- |
@@ -108,6 +186,13 @@ callouts, so a callout job owns its own partial-failure handling.
 **No DML before the job.** The run record was inserted by the check (a previous transaction), so a
 callout job can call out immediately.
 
+**Committing the outcome.** The executor read the job row when it started, and a job can run for
+minutes. It therefore writes back **only the fields a run changes** — last run time, status and
+duration, async job id, failure count — and writes Status only if the run changed it. It never
+writes Next Run or the schedule, and clears the queued marker only if it owned that occurrence. A
+sync, an edit or a later check that changed the row meanwhile is never overwritten, so an occurrence
+is never lost or repeated by a stale write.
+
 **Uncatchable failures.** A governor-limit exception kills the executor's transaction, including its
 bookkeeping. The platform marks the queueable `Failed`; at the next check `AJORunLogger.reconcile`
 sees a run still pointing at a finished `AJOJobExecutor` and closes it as `Failed` ("ended without
@@ -115,7 +200,8 @@ recording an outcome"), counting it against the circuit breaker. Nothing fails s
 
 **Running user.** Heartbeat launches run as the scheduling user. Console **Run now** runs as the
 clicking user (in its own transaction); **Run at next check** makes the job due so the next check
-runs it as the scheduling user.
+runs it as the scheduling user. **Run now is refused while the job is `Queued` or `Running`** unless
+its overlap policy is `Allow`, so a click cannot start a second copy of a job in flight.
 
 ## Outcomes and the circuit breaker
 
@@ -124,6 +210,24 @@ runs it as the scheduling user.
 Emails), retires jobs whose window closed mid-run, and keeps a `Queued` job queued (its next
 occurrence is already waiting). On success it **chains** dependents that set `Run After
 Dependency`: their Next Run becomes now, so they start at the next check.
+
+Job status (`AJOJob__c.AJO_Status__c`):
+
+```mermaid
+flowchart LR
+  START(( )) -->|definition synced| Idle
+  Idle -->|launched| Queued
+  Queued -->|done or stood down| Idle
+  Queued -->|started Batch / Queueable| Running
+  Running -->|reconcile| Idle
+  Queued & Running -->|failure cap reached| Suspended
+  Suspended -->|Resume| Idle
+  Idle -->|past End Date| Expired
+  Idle -->|fails validation| Invalid
+  Invalid -->|fixed in release| Idle
+  Idle -->|definition removed| Retired
+  Retired -->|redeployed| Idle
+```
 
 ## Batch capacity (`AJOThrottle`)
 
@@ -156,7 +260,10 @@ and the supervisor). `GET /services/apexrest/ajo/health` returns 200/503 for an 
 - A job never starts before its minute (deferral rounds up; with deferral off only due jobs are taken).
 - An occurrence is run at most once (ownership check; Next Run advanced past a queued occurrence).
 - A takeover never leaves a job run by both the Setup schedule and the orchestrator, or by neither
-  (state write and abort in one transaction, abort last, savepoint).
+  (state write and abort in one transaction, abort last, savepoint). `CUTOVER_DONE` is raised only
+  after the abort succeeds, so a rolled-back takeover is never announced.
+- A run's write-back never overwrites scheduling state that changed while it ran.
+- A manual run honours the overlap policy.
 - One job's failure — including a governor limit — never affects another job or the check.
 - Every refusal and failure leaves a run record or an alert.
 

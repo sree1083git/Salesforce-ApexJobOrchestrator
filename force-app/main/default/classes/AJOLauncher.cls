@@ -23,7 +23,7 @@
  * check: late by one interval, never early, never lost.
  *
  * Gates, in order, per job: suspended, definition policy, activation window,
- * dependency, overlap, dry run, batch throttle, launch budget. Every refusal
+ * dependency, overlap, dry run, launch budget, batch throttle. Every refusal
  * except the budget leaves a run record, so a job that did not run is visible.
  *
  * Runs without sharing: framework infrastructure acting on every job's state.
