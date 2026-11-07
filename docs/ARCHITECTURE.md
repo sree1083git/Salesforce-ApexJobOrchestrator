@@ -261,7 +261,8 @@ and the supervisor). `GET /services/apexrest/ajo/health` returns 200/503 for an 
 - An occurrence is run at most once (ownership check; Next Run advanced past a queued occurrence).
 - A takeover never leaves a job run by both the Setup schedule and the orchestrator, or by neither
   (state write and abort in one transaction, abort last, savepoint). `CUTOVER_DONE` is raised only
-  after the abort succeeds, so a rolled-back takeover is never announced.
+  after the abort succeeds, so a rolled-back takeover is never announced. No takeover happens while
+  the definition is in Dry Run: during the rehearsal the Setup job keeps doing the real work.
 - A run's write-back never overwrites scheduling state that changed while it ran.
 - A manual run honours the overlap policy.
 - One job's failure — including a governor limit — never affects another job or the check.

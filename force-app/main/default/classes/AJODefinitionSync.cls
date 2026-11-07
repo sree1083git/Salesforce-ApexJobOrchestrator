@@ -27,7 +27,8 @@
  *   4. Retires state whose definition was removed from the release.
  *   5. Resolves Depends On keys into the AJO_DependsOnJobId__c lookup.
  *   6. Performs pending cut-overs: aborts the Setup scheduled job named in
- *      AJO_ReplacesCronJobName__c. The abort is the LAST statement, after the
+ *      AJO_ReplacesCronJobName__c, once the definition is active and out of
+ *      Dry Run (during Dry Run the Setup job keeps doing the real work). The abort is the LAST statement, after the
  *      state is written, so if it fails the caller's savepoint rolls the whole
  *      sync back and the old schedule keeps running. A job is therefore never
  *      run by both, and never by neither.
@@ -215,6 +216,11 @@ public without sharing class AJODefinitionSync {
             if (s == null || s.Id == null || problems.containsKey(d.DeveloperName)) { continue; }
             if (d.AJO_Active__c != true || String.isBlank(d.AJO_ReplacesCronJobName__c)
                 || s.AJO_CutoverAt__c != null) { continue; }
+            // Dry Run is the rehearsal: the Setup job keeps doing the real work while
+            // the orchestrated copy only logs what it would have done. Taking over now
+            // would leave the job run by NEITHER until Dry Run is switched off. The
+            // takeover happens in the release that turns Dry Run off.
+            if (d.AJO_DryRun__c == true) { continue; }
             String legacy = d.AJO_ReplacesCronJobName__c.trim();
             if (legacy.startsWith(AJOInstaller.HEARTBEAT_PREFIX) || legacy == AJOInstaller.SUPERVISOR_NAME) {
                 AJOAlerts.raise(AJOAlerts.ERROR, 'CUTOVER_FAILED', d.DeveloperName,

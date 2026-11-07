@@ -56,7 +56,7 @@ Emails.
 | `SLOTS_REARMED` | WARNING | A missing slot was re-created. Find out who removed it. |
 | `LAUNCH_BACKLOG` | WARNING | More jobs due than one check launches. Spread schedules or raise the cap carefully. |
 | `RECONCILE_FAILED` | WARNING | Closing finished runs failed; retried next check. |
-| `CUTOVER_DONE`, `DEFINITION_RETIRED` | INFO | Audit trail. `CUTOVER_DONE` is sent only after the Setup job was aborted. |
+| `CUTOVER_DONE`, `DEFINITION_RETIRED` | INFO | Audit trail. `CUTOVER_DONE` is sent only after the Setup job was aborted, which happens only once the definition is out of Dry Run. |
 
 **External health check** — `GET /services/apexrest/ajo/health` (integration user with the Viewer
 set). 200 + `healthy:true`, or 503 with `problems`. Alert on 503 or on failure to connect. This is

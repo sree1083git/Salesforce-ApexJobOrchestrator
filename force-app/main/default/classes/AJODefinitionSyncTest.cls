@@ -232,6 +232,27 @@ private class AJODefinitionSyncTest {
     }
 
     @IsTest
+    static void duringDryRunTheSetupJobKeepsDoingTheRealWork() {
+        String legacy = 'ZZ AJO Sync Rehearsal ' + Crypto.getRandomInteger();
+        Id ctId = System.schedule(legacy, '0 0 3 * * ?', new AJODemoLegacyScheduler());
+
+        AJO_Job_Definition__mdt d = AJOTestFactory.definition('SYNC_REHEARSAL', 'AJODemoLegacyScheduler',
+                                                              'Legacy Schedulable');
+        d.AJO_ReplacesCronJobName__c = legacy;
+        d.AJO_DryRun__c = true;
+        AJOTestFactory.use(new List<AJO_Job_Definition__mdt>{ d });
+
+        Test.startTest();
+        AJODefinitionSync.Result r = AJODefinitionSync.sync();
+        Test.stopTest();
+
+        System.assertEquals(0, r.cutOver, 'No takeover while the definition only rehearses.');
+        System.assertEquals(1, [SELECT COUNT() FROM CronTrigger WHERE Id = :ctId],
+            'The Setup schedule still runs the job for real during Dry Run.');
+        System.assertEquals(null, AJOTestFactory.state('SYNC_REHEARSAL').AJO_CutoverAt__c);
+    }
+
+    @IsTest
     static void activationTakesOverTheNamedSetupJobOnce() {
         String legacy = 'ZZ AJO Sync Takeover ' + Crypto.getRandomInteger();
         Id ctId = System.schedule(legacy, '0 0 3 * * ?', new AJODemoLegacyScheduler());
@@ -243,9 +264,14 @@ private class AJODefinitionSyncTest {
         AJOTestFactory.use(new List<AJO_Job_Definition__mdt>{ d });
 
         Test.startTest();
+        AJODefinitionSync.Result rehearsal = AJODefinitionSync.sync();
+        d.AJO_DryRun__c = false; // the release that ends the rehearsal
+        AJOTestFactory.use(new List<AJO_Job_Definition__mdt>{ d });
         AJODefinitionSync.Result r = AJODefinitionSync.sync();
         AJODefinitionSync.Result again = AJODefinitionSync.sync();
         Test.stopTest();
+
+        System.assertEquals(0, rehearsal.cutOver);
 
         System.assertEquals(1, r.cutOver, r.summary());
         System.assertEquals(0, again.cutOver, 'A takeover happens once.');
