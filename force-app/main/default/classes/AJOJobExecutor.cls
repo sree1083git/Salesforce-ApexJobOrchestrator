@@ -86,15 +86,37 @@ public without sharing class AJOJobExecutor implements Queueable, Database.Allow
             run.AJO_StartedAt__c = Datetime.now();
         }
 
+        String statusBefore = job.AJO_Status__c;
         AJOLauncher.execute(job, run);
+        commitOutcome(job, statusBefore);
+    }
 
-        // Release only the marker this executor owned. A Run now executor owns no
-        // occurrence (dueAt is null); clearing the marker there would make a
-        // heartbeat-queued run of the same job stand down and lose its occurrence.
-        if (dueAt != null && job.AJO_QueuedForAt__c == dueAt) {
-            job.AJO_QueuedForAt__c = null;
+    /**
+     * Writes back ONLY what a run changes. The job was read when the executor
+     * started and may have run for minutes since; updating the whole in-memory
+     * record would overwrite a Next Run or queued marker that a sync, an edit or
+     * a later check set in the meantime (and so lose or repeat an occurrence).
+     *
+     * Status is written only when the run changed it (Queued to Idle, Running or
+     * Suspended). A Run now executor starts from Idle and usually ends there, so
+     * it leaves Status alone and cannot undo a heartbeat's Queued.
+     * The queued marker is released only when this executor owned it.
+     */
+    private void commitOutcome(AJOJob__c job, String statusBefore) {
+        AJOJob__c out = new AJOJob__c(
+            Id                         = job.Id,
+            AJO_LastRunAt__c           = job.AJO_LastRunAt__c,
+            AJO_LastRunStatus__c       = job.AJO_LastRunStatus__c,
+            AJO_LastDurationSec__c     = job.AJO_LastDurationSec__c,
+            AJO_LastAsyncApexJobId__c  = job.AJO_LastAsyncApexJobId__c,
+            AJO_ConsecutiveFailures__c = job.AJO_ConsecutiveFailures__c);
+        if (job.AJO_Status__c != statusBefore) {
+            out.AJO_Status__c = job.AJO_Status__c;
         }
-        update job;
+        if (dueAt != null && job.AJO_QueuedForAt__c == dueAt) {
+            out.AJO_QueuedForAt__c = null;
+        }
+        update out;
     }
 
     /**

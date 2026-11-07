@@ -239,14 +239,17 @@ public without sharing class AJODefinitionSync {
         Datetime now = Datetime.now();
         List<AJOJob__c> audit = new List<AJOJob__c>();
         List<Id> toAbort = new List<Id>();
+        // Raised only after the abort succeeds: if it throws, the caller rolls the
+        // sync back and an alert claiming a takeover would be false.
+        List<String[]> done = new List<String[]>();
         for (String legacy : names) {
             AJOJob__c s = byLegacyName.get(legacy);
             CronTrigger ct = found.get(legacy);
             AJOJob__c a = new AJOJob__c(Id = s.Id, AJO_CutoverAt__c = now,
                                         AJO_LegacyCronJobName__c = legacy);
             if (ct == null) {
-                AJOAlerts.raise(AJOAlerts.INFO, 'CUTOVER_DONE', s.AJO_JobKey__c,
-                    'No Setup scheduled job named "' + legacy + '" exists; nothing to abort.');
+                done.add(new String[]{ s.AJO_JobKey__c,
+                    'No Setup scheduled job named "' + legacy + '" exists; nothing to abort.' });
             } else {
                 a.AJO_LegacyCronTriggerId__c  = String.valueOf(ct.Id);
                 a.AJO_LegacyCronExpression__c = ct.CronExpression;
@@ -255,13 +258,13 @@ public without sharing class AJODefinitionSync {
                 toAbort.add(ct.Id);
                 String jobTz = String.isBlank(s.AJO_TimeZoneSidKey__c)
                     ? AJOConfig.defaultTimeZone() : s.AJO_TimeZoneSidKey__c;
-                AJOAlerts.raise(AJOAlerts.INFO, 'CUTOVER_DONE', s.AJO_JobKey__c,
+                done.add(new String[]{ s.AJO_JobKey__c,
                     'Took over Setup scheduled job "' + legacy + '" (' + ct.CronExpression + ' '
                     + ct.TimeZoneSidKey + '). One scheduled slot freed.'
                     + (ct.TimeZoneSidKey != jobTz
                        ? ' Note: the Setup job ran in ' + ct.TimeZoneSidKey + ' and the definition '
                          + 'runs in ' + jobTz + '.'
-                       : ''));
+                       : '') });
             }
             s.AJO_CutoverAt__c = now;
             audit.add(a);
@@ -270,6 +273,7 @@ public without sharing class AJODefinitionSync {
         // LAST: a failure here propagates, and the caller's savepoint undoes the audit
         // and the state together, leaving the Setup schedule in charge.
         for (Id ctId : toAbort) { System.abortJob(ctId); }
+        for (String[] note : done) { AJOAlerts.raise(AJOAlerts.INFO, 'CUTOVER_DONE', note[0], note[1]); }
         return audit.size();
     }
 

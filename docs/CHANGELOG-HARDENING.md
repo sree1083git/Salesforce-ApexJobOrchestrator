@@ -48,3 +48,13 @@ runtime state in a custom object — is implemented as the hybrid model describe
 - Pre-existing tests run in migration mode (`AJO_AllowUnmanagedJobs__c = true`) as engine
   regression coverage; four assertions were updated for the asynchronous Run now, the executor
   model and the retired pinned trap.
+
+## Review pass 2 (self-review of the hardening)
+
+| Defect found | Fix | Test |
+| --- | --- | --- |
+| Executor wrote the whole stale job row back after a run, so a Next Run or queued marker set meanwhile (sync, edit, later check) was overwritten | Executor commits only the run's outcome fields; Status only when the run changed it | `aRunNowExecutorDoesNotOverwriteNewerSchedulingState` |
+| Run now ignored the overlap policy, so a click could start a second copy of a job in flight | Refused while Queued/Running unless overlap policy is Allow | `aManualRunIsRefusedWhileTheJobIsAlreadyInFlight` |
+| Definition lookup in `execute` sat outside the try, so a definition that vanished or went invalid after queueing killed the executor and left the job marked Queued | Moved inside the try: recorded as a failed run | covered by `AJOEngineHardeningTest` executor tests |
+| Launch budget was checked after the batch throttle claim, so held jobs consumed batch capacity the check never used | Budget checked first | `aLargeCheckStaysWithinItsBudgetAndHoldsTheRest` |
+| `CUTOVER_DONE` was raised before the Setup abort; if the abort failed and the sync rolled back, the alert had falsely announced a takeover | Alerts raised after the abort succeeds | `AJODefinitionSyncTest` takeover tests |

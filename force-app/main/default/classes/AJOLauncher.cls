@@ -132,17 +132,19 @@ public without sharing class AJOLauncher {
                     toUpdate.add(job);
                     continue;
                 }
+                if (planned.size() >= budget) {
+                    // Checked BEFORE the throttle, so a held job does not consume
+                    // batch capacity this check never uses. Next Run untouched:
+                    // late by one check, never early, never lost.
+                    heldForBudget++;
+                    continue;
+                }
                 if (!throttle.claim(job)) {
                     notes.add(noteRecord(job, dueAt, 'Throttled',
                         'Batch capacity is in use (' + AJOConfig.maxConcurrentBatches()
                         + ' concurrent, flex queue cap ' + AJOConfig.flexQueueCap()
                         + '). Retrying at the next check.', slot));
                     continue; // Next Run untouched, so the next check takes it
-                }
-                if (planned.size() >= budget) {
-                    // Next Run untouched: late by one check, never early, never lost.
-                    heldForBudget++;
-                    continue;
                 }
 
                 // The executor waits until the exact minute. A job already due (or
@@ -266,15 +268,21 @@ public without sharing class AJOLauncher {
      * failure is recorded, so a failed run never leaves half its work behind.
      */
     public static void execute(AJOJob__c job, AJOJobRun__c run) {
-        if (job.AJO_DefinitionManaged__c == true && !applyDefinition(job)) {
-            throw new AJOLegacyAdapter.UnsupportedJobException(
-                'Definition ' + job.AJO_JobKey__c + ' is no longer deployed or active.');
-        }
-        Boolean callouts = job.AJO_AllowsCallouts__c == true && job.AJO_ExecutionType__c == 'Runnable';
-        Savepoint sp = callouts ? null : Database.setSavepoint();
+        Savepoint sp = null;
         job.AJO_LastRunAt__c = Datetime.now();
 
         try {
+            // Inside the try so a definition that went away or invalid between
+            // queueing and starting is recorded as a failed run, not an
+            // uncaught executor failure that leaves the job marked Queued.
+            if (job.AJO_DefinitionManaged__c == true && !applyDefinition(job)) {
+                throw new AJOLegacyAdapter.UnsupportedJobException(
+                    'Definition ' + job.AJO_JobKey__c + ' is no longer deployed, active and valid.');
+            }
+            Boolean callouts = job.AJO_AllowsCallouts__c == true
+                && job.AJO_ExecutionType__c == 'Runnable';
+            if (!callouts) { sp = Database.setSavepoint(); }
+
             if (job.AJO_ExecutionType__c == 'Runnable') {
                 Object o = AJOLegacyAdapter.instantiate(job.AJO_ApexClassName__c);
                 if (!(o instanceof AJORunnable)) {

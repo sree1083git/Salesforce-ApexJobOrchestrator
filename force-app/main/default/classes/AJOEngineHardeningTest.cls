@@ -215,6 +215,37 @@ private class AJOEngineHardeningTest {
     }
 
     @IsTest
+    static void aRunNowExecutorDoesNotOverwriteNewerSchedulingState() {
+        AJOTestFactory.use(new List<AJO_Job_Definition__mdt>{ AJOTestFactory.runnable('ENG_NO_CLOBBER') });
+        AJODefinitionSync.sync();
+        AJOJob__c j = AJOTestFactory.state('ENG_NO_CLOBBER');
+        AJOJobRun__c run = AJORunLogger.open(j, Datetime.now(), 'Manual', null);
+        Datetime later = Datetime.now().addHours(5);
+
+        Test.startTest();
+        AJOJobExecutor ex = new AJOJobExecutor(j.Id, run.Id, null);
+        // A sync or edit moves Next Run after the executor could have read it; the
+        // executor must commit only the run's outcome and leave this alone.
+        update new AJOJob__c(Id = j.Id, AJO_NextRunAt__c = later);
+        ex.executeNow();
+        Test.stopTest();
+
+        AJOJob__c after = AJOTestFactory.state('ENG_NO_CLOBBER');
+        System.assertEquals(later, after.AJO_NextRunAt__c, 'Next Run set meanwhile must survive the run.');
+        System.assertEquals('Success', after.AJO_LastRunStatus__c);
+    }
+
+    @IsTest
+    static void aManualRunIsRefusedWhileTheJobIsAlreadyInFlight() {
+        AJOTestFactory.use(new List<AJO_Job_Definition__mdt>{ AJOTestFactory.runnable('ENG_MANUAL_OVERLAP') });
+        AJODefinitionSync.sync();
+        AJOJob__c j = AJOTestFactory.state('ENG_MANUAL_OVERLAP');
+        update new AJOJob__c(Id = j.Id, AJO_Status__c = 'Running');
+
+        expectRefusal(new RunNowCall(j.Id), 'already');
+    }
+
+    @IsTest
     static void anExecutorThatDiedIsReconciledAsAFailure() {
         AJOTestFactory.use(new List<AJO_Job_Definition__mdt>{ AJOTestFactory.runnable('ENG_DIED') });
         AJODefinitionSync.sync();
@@ -409,6 +440,12 @@ private class AJOEngineHardeningTest {
     }
 
     private interface Call { void invoke(); }
+
+    private class RunNowCall implements Call {
+        Id jobId;
+        RunNowCall(Id jobId) { this.jobId = jobId; }
+        public void invoke() { AJOAdminController.runNowById(jobId); }
+    }
 
     private class SaveCall implements Call {
         Id jobId;

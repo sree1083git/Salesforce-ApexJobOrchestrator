@@ -928,6 +928,12 @@ public with sharing class AJOAdminController {
             throw new AuraHandledException('This job cannot run: its definition is '
                 + job.AJO_Status__c.toLowerCase() + '.');
         }
+        // A manual run is a run: it honours the job's overlap policy, so a click
+        // cannot start a second copy of a batch or Runnable already in flight.
+        if (AJOLauncher.IN_FLIGHT.contains(job.AJO_Status__c) && job.AJO_OverlapPolicy__c != 'Allow') {
+            throw new AuraHandledException('This job is already ' + job.AJO_Status__c.toLowerCase()
+                + ' (overlap policy: ' + job.AJO_OverlapPolicy__c + '). Wait for it to finish.');
+        }
         // Run in its own transaction, with full async limits and callouts
         // allowed — never inside the clicking user's request. The job's code
         // runs as the clicking user; use Run at next check to run it as the
