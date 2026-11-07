@@ -2,8 +2,8 @@
 <CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
     <fullName>AJO_Pinned__c</fullName>
     <defaultValue>false</defaultValue>
-    <description>Keeps this job on its own dedicated CronTrigger where minute exactness is contractual.</description>
-    <label>Pinned</label>
+    <description>Deprecated and ignored. Pinned jobs were skipped by every check and never ran. Kept only so existing data and layouts deploy; remove with manifest/retire-pinned.</description>
+    <label>Pinned (Deprecated)</label>
     <trackHistory>true</trackHistory>
     <trackTrending>false</trackTrending>
     <type>Checkbox</type>

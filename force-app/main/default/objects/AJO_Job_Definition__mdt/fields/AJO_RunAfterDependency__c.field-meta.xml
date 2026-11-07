@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>AJO_RunAfterDependency__c</fullName>
+    <defaultValue>false</defaultValue>
+    <description
+  >When the job it depends on succeeds, run this job at the next check instead of waiting for its own cron.</description>
+    <fieldManageability>DeveloperControlled</fieldManageability>
+    <label>Run After Dependency</label>
+    <type>Checkbox</type>
+</CustomField>

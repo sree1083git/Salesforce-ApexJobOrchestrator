@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<CustomMetadata
+  xmlns="http://soap.sforce.com/2006/04/metadata"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+>
+    <label>Demo - Runnable with parameters</label>
+    <protected>false</protected>
+    <values>
+        <field>AJO_Active__c</field>
+        <value xsi:type="xsd:boolean">false</value>
+    </values>
+    <values>
+        <field>AJO_DryRun__c</field>
+        <value xsi:type="xsd:boolean">true</value>
+    </values>
+    <values>
+        <field>AJO_TimeZone__c</field>
+        <value xsi:type="xsd:string">America/New_York</value>
+    </values>
+    <values>
+        <field>AJO_OverlapPolicy__c</field>
+        <value xsi:type="xsd:string">Skip</value>
+    </values>
+    <values>
+        <field>AJO_MaxRuntimeMinutes__c</field>
+        <value xsi:type="xsd:double">60</value>
+    </values>
+    <values>
+        <field>AJO_MaxConsecutiveFailures__c</field>
+        <value xsi:type="xsd:double">3</value>
+    </values>
+    <values>
+        <field>AJO_Priority__c</field>
+        <value xsi:type="xsd:double">5</value>
+    </values>
+    <values>
+        <field>AJO_ApexClass__c</field>
+        <value xsi:type="xsd:string">AJODemoRunnable</value>
+    </values>
+    <values>
+        <field>AJO_ExecutionType__c</field>
+        <value xsi:type="xsd:string">Runnable</value>
+    </values>
+    <values>
+        <field>AJO_CronExpression__c</field>
+        <value xsi:type="xsd:string">0 0 6 * * ?</value>
+    </values>
+    <values>
+        <field>AJO_Parameters__c</field>
+        <value xsi:type="xsd:string">{"object":"User","target":1}</value>
+    </values>
+    <values>
+        <field>AJO_Description__c</field>
+        <value
+      xsi:type="xsd:string"
+    >Sample Runnable. Reads parameters from the context and reports counters. Ships inactive.</value>
+    </values>
+</CustomMetadata>

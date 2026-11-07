@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>AJO_DependsOn__c</fullName>
+    <description
+  >DeveloperName of another definition that must have succeeded since this job last ran.</description>
+    <fieldManageability>DeveloperControlled</fieldManageability>
+    <label>Depends On</label>
+    <length>40</length>
+    <required>false</required>
+    <type>Text</type>
+</CustomField>

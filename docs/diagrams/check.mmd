@@ -1,0 +1,30 @@
+sequenceDiagram
+  autonumber
+  participant P as Platform scheduler
+  participant D as AJODispatcher (check)
+  participant S as AJODefinitionSync
+  participant L as AJOLauncher
+  participant X as AJOJobExecutor
+  participant J as Job class
+  P->>D: fires at :00/:10/…/:50
+  D->>D: stamp heartbeat · heal slots
+  alt kill switch on
+    D-->>P: stop (heartbeat still stamped)
+  end
+  D->>S: syncSafely() (savepoint)
+  S-->>D: state aligned, takeover abort last
+  D->>D: reconcile finished async runs
+  D->>L: launch(selectDue(now … now+10))
+  L->>L: gates: window · dependency · overlap · dry run · budget · throttle
+  L->>L: bulk insert runs · mark Queued · advance Next Run
+  L->>X: enqueue with delay to exact minute
+  Note over D,L: no job code runs in the check
+  X->>X: re-check: pause · definition · window · ownership · capacity
+  alt must stand down
+    X->>X: close run Skipped/Throttled, release marker
+  else runs
+    X->>J: execute (savepoint unless callouts)
+    J-->>X: success / exception / async id
+    X->>X: write run outcome + outcome fields only
+  end
+  Note over X: governor-limit death → next check's reconcile closes run as Failed

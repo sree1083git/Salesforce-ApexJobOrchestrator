@@ -349,4 +349,7 @@
     border-left-color: #ba0517;
     background: #fdecee;
     color: #8a0a16;
+}.definition-xml textarea {
+    font-family: monospace;
+    min-height: 16rem;
 }

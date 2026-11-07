@@ -24,6 +24,11 @@ import convertApex from '@salesforce/apex/AJOAdminController.convert';
 import convertManyApex from '@salesforce/apex/AJOAdminController.convertMany';
 import planRestoreApex from '@salesforce/apex/AJOAdminController.planRestore';
 import restoreApex from '@salesforce/apex/AJOAdminController.restore';
+import runAtNextCheckApex from '@salesforce/apex/AJOAdminController.runAtNextCheck';
+import syncNowApex from '@salesforce/apex/AJOAdminController.syncNow';
+import generateDefinitionApex from '@salesforce/apex/AJOAdminController.generateDefinition';
+import exportDefinitionApex from '@salesforce/apex/AJOAdminController.exportDefinition';
+import generateConversionDefinitionsApex from '@salesforce/apex/AJOAdminController.generateConversionDefinitions';
 
 const MS_PER_DAY = 86400000;
 
@@ -40,13 +45,23 @@ const JOB_ACTIONS = [
  * is offered per row rather than shown everywhere and then refused.
  */
 function jobActionsFor(row, done) {
-    // A job with a run already queued cannot be edited until it starts; the
-    // server refuses it too, this just says so before anyone tries.
-    const actions = row.editLocked
-        ? JOB_ACTIONS.map(a => (a.name === 'edit'
+    // A job defined in custom metadata changes only through a release, so its
+    // editor is replaced by "Show definition". An unmanaged job with a run
+    // queued cannot be edited until it starts; the server refuses both too,
+    // this just says so before anyone tries.
+    let actions = JOB_ACTIONS;
+    if (row.managed) {
+        actions = JOB_ACTIONS.filter((a) => a.name !== 'edit')
+            .concat([{ label: 'Show definition', name: 'export' }]);
+    } else if (row.editLocked) {
+        actions = JOB_ACTIONS.map((a) => (a.name === 'edit'
             ? { ...a, label: 'Edit (locked: run queued)', disabled: true }
-            : a))
-        : JOB_ACTIONS;
+            : a));
+    }
+    actions = actions.concat([{ label: 'Run at next check (as scheduler)', name: 'nextcheck' }]);
+    if (!row.managed) {
+        actions = actions.concat([{ label: 'Export as definition', name: 'export' }]);
+    }
     done(row.converted
         ? actions.concat([{ label: 'Restore to Setup', name: 'restore' }])
         : actions);
@@ -126,6 +141,9 @@ export default class AjoJobConsole extends LightningElement {
     restoring = false;
     acceptShift = false;
     showUninstall = false;
+    // Definition files produced for a release (new job, export, takeover).
+    @track definitionFiles = [];
+    showDefinitions = false;
     uninstallConfirm = '';
     saving = false;
     busy = false;
@@ -442,6 +460,22 @@ export default class AjoJobConsole extends LightningElement {
     async convertSelected() {
         if (!this.selectedIds.length) { return; }
         this.converting = true;
+        if (this.releaseOnly) {
+            // Takeovers ship as definitions with Replaces Setup Job set; the
+            // first sync after the release aborts the Setup schedule atomically.
+            try {
+                const files = await generateConversionDefinitionsApex({
+                    cronTriggerIds: this.selectedIds
+                });
+                this.showConvert = false;
+                this.openDefinitions(files);
+            } catch (e) {
+                this.toastError('Could not build the definitions', e);
+            } finally {
+                this.converting = false;
+            }
+            return;
+        }
         try {
             const rows = await convertManyApex({
                 cronTriggerIds: this.selectedIds, testMode: true
@@ -865,6 +899,21 @@ export default class AjoJobConsole extends LightningElement {
             this.openEdit(row);
         } else if (action === 'restore') {
             await this.openRestore(row);
+        } else if (action === 'nextcheck') {
+            try {
+                const msg = await runAtNextCheckApex({ jobId: row.id });
+                this.toast(row.name, msg, 'success');
+                await this.loadAll();
+            } catch (e) {
+                this.toastError('Could not schedule it', e);
+            }
+        } else if (action === 'export') {
+            try {
+                const file = await exportDefinitionApex({ jobId: row.id });
+                this.openDefinitions([file]);
+            } catch (e) {
+                this.toastError('Could not build the definition', e);
+            }
         }
     }
 
@@ -877,8 +926,8 @@ export default class AjoJobConsole extends LightningElement {
         } else if (action === 'retry') {
             try {
                 const status = await retryRunApex({ runId: row.id });
-                this.toast('Ran again', `${row.jobName} — ${status}`,
-                           status === 'Success' ? 'success' : 'warning');
+                this.toast('Queued again', `${row.jobName} — ${status}. It runs in its own `
+                    + 'transaction; refresh in a moment for the result.', 'success');
                 await this.loadAll();
             } catch (e) {
                 this.toastError('Could not run it again', e);
@@ -889,8 +938,9 @@ export default class AjoJobConsole extends LightningElement {
     async runOne(jobId, jobName) {
         try {
             const status = await runNowByIdApex({ jobId });
-            this.toast(`Ran ${jobName}`, `Result: ${status}`,
-                       status === 'Success' ? 'success' : 'warning');
+            this.toast(`${jobName}: ${status}`,
+                'It runs in its own transaction, as you. Refresh in a moment for the result.',
+                'success');
             await this.loadAll();
         } catch (e) {
             this.toastError('The run failed', e);
@@ -998,8 +1048,30 @@ export default class AjoJobConsole extends LightningElement {
         }
     }
 
+    /** True while jobs are defined only in custom metadata (no unmanaged jobs). */
+    get releaseOnly() {
+        return !(this.health && this.health.unmanagedAllowed);
+    }
+
+    get saveLabel() {
+        return this.releaseOnly ? 'Generate definition' : 'Save';
+    }
+
     async saveDraft() {
         this.saving = true;
+        if (this.releaseOnly) {
+            // Jobs change through a release: produce the record file to commit.
+            try {
+                const file = await generateDefinitionApex({ payload: JSON.stringify(this.draft) });
+                this.showEditor = false;
+                this.openDefinitions([file]);
+            } catch (e) {
+                this.toastError('Could not build the definition', e);
+            } finally {
+                this.saving = false;
+            }
+            return;
+        }
         try {
             await saveJobApex({ payload: JSON.stringify(this.draft) });
             this.toast('Saved', this.draft.name, 'success');
@@ -1086,6 +1158,47 @@ export default class AjoJobConsole extends LightningElement {
             this.toastError('Maintenance failed', e);
         } finally {
             this.busy = false;
+        }
+    }
+
+    async syncNow() {
+        this.busy = true;
+        try {
+            const summary = await syncNowApex();
+            this.toast('Definitions synced', summary, 'success');
+            await this.loadAll();
+        } catch (e) {
+            this.toastError('Sync failed', e);
+        } finally {
+            this.busy = false;
+        }
+    }
+
+    // ------------------------------------------------- definition file dialog
+
+    openDefinitions(files) {
+        this.definitionFiles = (files || []).map((f, i) => ({
+            ...f,
+            key: `${f.fileName}-${i}`,
+            path: `force-app/main/default/customMetadata/${f.fileName}`,
+            hasProblems: !!(f.problems && f.problems.length)
+        }));
+        this.showDefinitions = true;
+    }
+
+    closeDefinitions() {
+        this.showDefinitions = false;
+        this.definitionFiles = [];
+    }
+
+    async copyDefinition(event) {
+        const file = this.definitionFiles.find((f) => f.key === event.target.dataset.key);
+        if (!file) { return; }
+        try {
+            await navigator.clipboard.writeText(file.xml);
+            this.toast('Copied', file.fileName, 'success');
+        } catch (e) {
+            this.toastError('Could not copy; select the text instead', e);
         }
     }
 

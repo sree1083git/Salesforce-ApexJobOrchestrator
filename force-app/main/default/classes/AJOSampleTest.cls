@@ -5,6 +5,19 @@
 @IsTest
 private class AJOSampleTest {
 
+    /**
+     * These tests exercise the engine with directly-inserted AJOJob__c rows
+     * (unmanaged jobs), so they run in the migration mode that allows them.
+     * The definition-backed (managed) path is covered by AJODefinitionSyncTest,
+     * AJOEngineHardeningTest and AJODefinitionValidationTest.
+     */
+    @TestSetup
+    static void allowUnmanagedJobs() {
+        insert new AJOSetting__c(AJO_AllowUnmanagedJobs__c = true, AJO_HeartbeatMinutes__c = 10,
+                                 AJO_MaxConcurrentBatches__c = 5, AJO_EnableDeferral__c = true);
+    }
+
+
     private static AJOJob__c makeJob(String key, String cls, String type, Integer scope) {
         AJOJob__c j = new AJOJob__c(
             Name                  = key,

@@ -179,6 +179,8 @@
                    scheduled check that went missing. This happens on its own every night.</p>
                 <lightning-button label="Run maintenance" icon-name="utility:refresh"
                                   onclick={runMaintenance} disabled={busy}></lightning-button>
+                <lightning-button label="Sync definitions now" class="slds-m-left_x-small"
+                                  onclick={syncNow} disabled={busy}></lightning-button>
               </div>
 
               <div class="setup-item setup-item_danger">
@@ -257,6 +259,46 @@
   </lightning-card>
 
   <!-- ------------------------------------------------ what went wrong modal -->
+  <template if:true={showDefinitions}>
+    <section role="dialog" tabindex="-1" aria-labelledby="defs-title"
+             class="slds-modal slds-fade-in-open slds-modal_large">
+      <div class="slds-modal__container">
+        <header class="slds-modal__header">
+          <h2 id="defs-title" class="slds-text-heading_medium">Job definition for your release</h2>
+          <p class="slds-m-top_x-small">
+            Commit each file at the path shown and deploy it. The next scheduled check (or
+            Sync definitions now) picks it up. Nothing has changed in this org.
+          </p>
+        </header>
+        <div class="slds-modal__content slds-p-around_medium">
+          <template for:each={definitionFiles} for:item="f">
+            <div key={f.key} class="slds-m-bottom_medium">
+              <p class="slds-text-title_bold">{f.path}</p>
+              <template if:true={f.hasProblems}>
+                <div class="slds-box slds-theme_warning slds-m-vertical_x-small">
+                  <p>Fix before deploying — the definition validation test will fail on:</p>
+                  <ul class="slds-list_dotted">
+                    <template for:each={f.problems} for:item="p">
+                      <li key={p}>{p}</li>
+                    </template>
+                  </ul>
+                </div>
+              </template>
+              <lightning-textarea label="File content" value={f.xml} readonly
+                                  class="definition-xml"></lightning-textarea>
+              <lightning-button label="Copy" data-key={f.key} onclick={copyDefinition}
+                                class="slds-m-top_x-small"></lightning-button>
+            </div>
+          </template>
+        </div>
+        <footer class="slds-modal__footer">
+          <lightning-button label="Close" onclick={closeDefinitions}></lightning-button>
+        </footer>
+      </div>
+    </section>
+    <div class="slds-backdrop slds-backdrop_open"></div>
+  </template>
+
   <template if:true={showDetail}>
     <section role="dialog" tabindex="-1" class="slds-modal slds-fade-in-open slds-modal_medium">
       <div class="slds-modal__container">
@@ -756,7 +798,7 @@
           </div>
           <div>
             <lightning-button label="Cancel" onclick={closeEditor}></lightning-button>
-            <lightning-button label="Save" variant="brand" onclick={saveDraft}
+            <lightning-button label={saveLabel} variant="brand" onclick={saveDraft}
                               class="slds-m-left_x-small" disabled={saving}></lightning-button>
           </div>
         </footer>

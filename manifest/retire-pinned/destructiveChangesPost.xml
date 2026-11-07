@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Removes the deprecated AJOJob__c.AJO_Pinned__c field. Pinned jobs were skipped
+  by every check and never ran; the flag has been ignored since the hybrid model.
+  First remove the field from the "Apex Job Layout" page layout (it is shown
+  read-only there), then:
+    sf project deploy start with the metadata-dir option pointing at manifest/retire-pinned
+    (see docs/MIGRATION.md)
+-->
+<Package xmlns="http://soap.sforce.com/2006/04/metadata">
+    <types>
+        <members>AJOJob__c.AJO_Pinned__c</members>
+        <name>CustomField</name>
+    </types>
+    <version>67.0</version>
+</Package>

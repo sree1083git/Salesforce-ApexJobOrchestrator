@@ -1,0 +1,13 @@
+flowchart LR
+  START(( )) -->|definition synced| Idle
+  Idle -->|launched| Queued
+  Queued -->|done or stood down| Idle
+  Queued -->|started Batch / Queueable| Running
+  Running -->|reconcile| Idle
+  Queued & Running -->|failure cap reached| Suspended
+  Suspended -->|Resume| Idle
+  Idle -->|past End Date| Expired
+  Idle -->|fails validation| Invalid
+  Invalid -->|fixed in release| Idle
+  Idle -->|definition removed| Retired
+  Retired -->|redeployed| Idle

@@ -40,6 +40,7 @@ private class AJOWindowTest {
     @TestSetup
     static void setup() {
         insert new AJOSetting__c(
+            AJO_AllowUnmanagedJobs__c   = true,
             AJO_KillSwitch__c           = false,
             AJO_HeartbeatMinutes__c     = 10,
             AJO_MaxConcurrentBatches__c = 5,

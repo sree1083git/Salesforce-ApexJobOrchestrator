@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>AJO_FlexQueueCap__c</fullName>
+    <description>Batches are held back while the Apex flex queue holds this many. Blank = 90 (platform maximum 100).</description>
+    <externalId>false</externalId>
+    <label>Flex Queue Cap</label>
+    <precision>3</precision>
+    <required>false</required>
+    <scale>0</scale>
+    <type>Number</type>
+</CustomField>

@@ -1,4 +1,20 @@
-/** Back end for the Apex Job Orchestration console. */
+/**
+ * Back end for the Apex Job Orchestration console (ajoJobConsole LWC).
+ *
+ * Under the hybrid model, WHAT a job runs and WHEN is defined in
+ * AJO_Job_Definition__mdt and changes only through a release. The console
+ * therefore splits into:
+ *   - read: jobs, activity, errors, health, the next-check preview;
+ *   - operate (no release needed): pause/resume (AJO_OpsPaused__c), Run now,
+ *     Run at next check, retry, pause all, maintenance, sync now;
+ *   - author (generates files for a release, writes nothing): a new definition,
+ *     an export of an unmanaged job, a takeover of a Setup schedule.
+ * Editing, deleting and converting directly in the org remain available only
+ * for unmanaged jobs while AJO_AllowUnmanagedJobs__c is on (migration period).
+ *
+ * Every @AuraEnabled method is callable directly from the browser by anyone
+ * with access to this class, so permission checks live here, not in the UI.
+ */
 public with sharing class AJOAdminController {
 
     // ------------------------------------------------------------ view types
@@ -38,6 +54,11 @@ public with sharing class AJOAdminController {
         @AuraEnabled public Datetime queuedForAt;
         @AuraEnabled public Boolean editLocked;
         @AuraEnabled public String editLockReason;
+        // Hybrid model: where the definition lives and its operational state.
+        @AuraEnabled public Boolean managed;
+        @AuraEnabled public Boolean opsPaused;
+        @AuraEnabled public String definitionError;
+        @AuraEnabled public Datetime cutoverAt;
     }
 
     public class RunView {
@@ -171,6 +192,13 @@ public with sharing class AJOAdminController {
         @AuraEnabled public String nextCheckLocal;
         @AuraEnabled public String statusHeadline;
         @AuraEnabled public String statusTone;
+        // Watchdog and hybrid model.
+        @AuraEnabled public Datetime lastHeartbeatAt;
+        @AuraEnabled public Boolean heartbeatStale;
+        @AuraEnabled public Integer jobsInvalid;
+        @AuraEnabled public Integer definitionsDeployed;
+        @AuraEnabled public Boolean unmanagedAllowed;
+        @AuraEnabled public Integer flexQueueDepth;
     }
 
     public class TriggerView {
@@ -188,7 +216,7 @@ public with sharing class AJOAdminController {
     public static List<JobView> getJobs() {
         List<JobView> out = new List<JobView>();
         for (AJOJob__c j : Database.query(
-                'SELECT ' + AJOLauncher.JOB_FIELDS
+                'SELECT ' + AJOLauncher.JOB_FIELDS + ', AJO_DefinitionError__c, AJO_CutoverAt__c'
                 + ' FROM AJOJob__c ORDER BY AJO_Enabled__c DESC, AJO_Priority__c ASC NULLS LAST, Name ASC')) {
             out.add(toView(j));
         }
@@ -229,8 +257,12 @@ public with sharing class AJOAdminController {
         v.convertedFrom = j.AJO_LegacyCronJobName__c;
         v.converted = String.isNotBlank(j.AJO_LegacyCronTriggerId__c);
         v.queuedForAt = j.AJO_QueuedForAt__c;
-        v.editLocked = isEditLocked(j);
-        v.editLockReason = v.editLocked ? editLockReason(j) : null;
+        v.managed = j.AJO_DefinitionManaged__c == true;
+        v.opsPaused = j.AJO_OpsPaused__c == true;
+        v.definitionError = j.AJO_DefinitionError__c;
+        v.cutoverAt = j.AJO_CutoverAt__c;
+        v.editLocked = v.managed || isEditLocked(j);
+        v.editLockReason = v.managed ? managedReason(j) : (v.editLocked ? editLockReason(j) : null);
         return v;
     }
 
@@ -377,8 +409,17 @@ public with sharing class AJOAdminController {
         ];
         h.runLogRows = [SELECT COUNT() FROM AJOJobRun__c];
 
+        h.jobsInvalid         = [SELECT COUNT() FROM AJOJob__c WHERE AJO_Status__c = 'Invalid'];
+        h.definitionsDeployed = AJODefinitions.all().size();
+        h.unmanagedAllowed    = AJOConfig.allowUnmanagedJobs();
+        h.flexQueueDepth      = AJOThrottle.flexQueueDepth();
+        h.lastHeartbeatAt     = AJOConfig.lastHeartbeatAt();
+
         h.heartbeatMinutes = AJOConfig.heartbeatMinutes();
         h.installed        = (armed >= h.heartbeatsExpected) && supervisor;
+        h.heartbeatStale   = h.installed && !h.killSwitch
+            && (h.lastHeartbeatAt == null
+                || h.lastHeartbeatAt.addMinutes(AJOConfig.staleHeartbeatMinutes()) < Datetime.now());
         h.canAdminister    = canAdminister();
         h.nextCheckAt      = earliest;
         h.nextCheckLocal   = AJOCron.formatLocal(earliest, h.defaultTimeZone);
@@ -404,6 +445,19 @@ public with sharing class AJOAdminController {
         if (h.killSwitch) {
             h.statusTone = 'warning';
             h.statusHeadline = 'Every job is paused. Nothing will run until you resume.';
+            return;
+        }
+        if (h.heartbeatStale == true && h.lastHeartbeatAt != null) {
+            h.statusTone = 'error';
+            h.statusHeadline = 'The scheduled checks have stopped: the last one ran at '
+                + AJOCron.formatLocal(h.lastHeartbeatAt, h.defaultTimeZone)
+                + '. Check the scheduling user is active, then reinstall.';
+            return;
+        }
+        if (h.jobsInvalid != null && h.jobsInvalid > 0) {
+            h.statusTone = 'error';
+            h.statusHeadline = h.jobsInvalid + (h.jobsInvalid == 1 ? ' job definition is' : ' job definitions are')
+                + ' invalid and cannot run. See the Jobs tab for the reasons.';
             return;
         }
         String next = String.isBlank(h.nextCheckLocal)
@@ -471,13 +525,15 @@ public with sharing class AJOAdminController {
         // the reason for a missed run has to be visible somewhere, and this is
         // the screen people look at.
         List<AJOJob__c> candidates = Database.query(
-            'SELECT ' + AJOLauncher.JOB_FIELDS + ' FROM AJOJob__c '
+            'SELECT ' + AJOLauncher.JOB_FIELDS + ', AJO_DefinitionError__c FROM AJOJob__c '
             + 'WHERE AJO_Enabled__c = true OR AJO_QueuedForAt__c != null '
+            + '   OR AJO_Status__c = \'Invalid\' '
             + 'ORDER BY AJO_QueuedForAt__c ASC NULLS LAST, '
             + '         AJO_NextRunAt__c ASC NULLS LAST, AJO_Priority__c ASC NULLS LAST '
             + 'LIMIT 500');
 
-        Map<Id, Boolean> deps = dependenciesMet(candidates);
+        Map<Id, AJOJobRun__c> parentOutcomes = AJOLauncher.latestTerminalRuns(parentIds(candidates));
+        Datetime nowForDeps = Datetime.now();
         Integer batchBudget   = AJOThrottle.availableBatchSlots();
 
         for (AJOJob__c job : candidates) {
@@ -511,11 +567,15 @@ public with sharing class AJOAdminController {
                 d.verdictReason = 'Every job is paused right now.';
 
             // ---- the reasons a job silently never runs, now stated out loud ----
-            } else if (job.AJO_Pinned__c == true) {
+            } else if (!AJOLauncher.mayRun(job)) {
                 d.verdict = 'Never runs';
-                d.verdictReason = 'Marked "must start on its exact minute", and the '
-                    + 'scheduled checks deliberately skip those. Nothing else picks '
-                    + 'it up, so it will never run. Clear that box.';
+                d.verdictReason = 'Not backed by a deployed job definition, and unmanaged jobs are '
+                    + 'switched off. Export it as a definition and deploy it.';
+            } else if (job.AJO_Status__c == 'Invalid' || job.AJO_Status__c == 'Retired') {
+                d.verdict = 'Never runs';
+                d.verdictReason = job.AJO_Status__c == 'Invalid'
+                    ? 'Its definition failed validation: ' + job.AJO_DefinitionError__c
+                    : 'Its definition is no longer deployed.';
             } else if (job.AJO_Status__c == 'Suspended') {
                 d.verdict = 'Never runs';
                 d.verdictReason = 'Switched off after repeated failures. Re-enable it to resume.';
@@ -538,10 +598,11 @@ public with sharing class AJOAdminController {
 
             // ---- due at the next check: the launcher's own gates, in its order ----
             } else if (job.AJO_DependsOnJobId__c != null
-                       && deps.get(job.AJO_DependsOnJobId__c) != true) {
+                       && !AJOLauncher.dependencySatisfied(job, parentOutcomes, nowForDeps)) {
                 d.verdict = 'Waiting';
-                d.verdictReason = 'The job it depends on has not succeeded yet today.';
-            } else if (job.AJO_Status__c == 'Running' && job.AJO_OverlapPolicy__c != 'Allow') {
+                d.verdictReason = 'The job it depends on has not succeeded since this job last ran.';
+            } else if (AJOLauncher.IN_FLIGHT.contains(job.AJO_Status__c)
+                       && job.AJO_OverlapPolicy__c != 'Allow') {
                 d.verdict = 'Will be skipped';
                 d.verdictReason = job.AJO_OverlapPolicy__c == 'Queue'
                     ? 'Its previous run is still going, so this one waits for the next check.'
@@ -569,31 +630,13 @@ public with sharing class AJOAdminController {
         return out;
     }
 
-    /**
-      * Which of the depended-on jobs have already succeeded today, in one query
-      * rather than the launcher's one-per-job — the preview may look at 200 rows
-      * at once where the launcher only ever holds a heartbeat's worth.
-      */
-    private static Map<Id, Boolean> dependenciesMet(List<AJOJob__c> jobs) {
-        Map<Id, Boolean> met = new Map<Id, Boolean>();
-        Set<Id> depIds = new Set<Id>();
+    /** The jobs the candidates depend on, for one bulk outcome query. */
+    private static Set<Id> parentIds(List<AJOJob__c> jobs) {
+        Set<Id> ids = new Set<Id>();
         for (AJOJob__c j : jobs) {
-            if (j.AJO_DependsOnJobId__c != null) { depIds.add(j.AJO_DependsOnJobId__c); }
+            if (j.AJO_DependsOnJobId__c != null) { ids.add(j.AJO_DependsOnJobId__c); }
         }
-        if (depIds.isEmpty()) { return met; }
-        for (Id depId : depIds) { met.put(depId, false); }
-        // Ascending, so the last write per job is that job's most recent run —
-        // the same record the launcher's LIMIT 1 descending query would read.
-        for (AJOJobRun__c r : [
-                SELECT AJO_Job__c, AJO_Status__c
-                FROM   AJOJobRun__c
-                WHERE  AJO_Job__c IN :depIds
-                  AND  AJO_StartedAt__c = TODAY
-                ORDER BY AJO_StartedAt__c ASC
-                LIMIT  2000]) {
-            met.put(r.AJO_Job__c, r.AJO_Status__c == 'Success');
-        }
-        return met;
+        return ids;
     }
 
     /**
@@ -836,6 +879,31 @@ public with sharing class AJOAdminController {
         }
     }
 
+    private static String managedReason(AJOJob__c job) {
+        return 'Defined in custom metadata (AJO_Job_Definition__mdt.' + job.AJO_JobKey__c
+            + '), so what it runs and when change only through a release. Pause, resume and '
+            + 'Run now still work here.';
+    }
+
+    /** Refuses a definition change on a managed job; it changes by release. */
+    private static void requireUnmanaged(Id jobId) {
+        List<AJOJob__c> rows = [
+            SELECT Id, AJO_JobKey__c, AJO_DefinitionManaged__c FROM AJOJob__c WHERE Id = :jobId LIMIT 1
+        ];
+        if (!rows.isEmpty() && rows[0].AJO_DefinitionManaged__c == true) {
+            throw new AuraHandledException(managedReason(rows[0]));
+        }
+        requireUnmanagedAllowed();
+    }
+
+    /** Refuses creating or converting into an unmanaged job outside the migration period. */
+    private static void requireUnmanagedAllowed() {
+        if (!AJOConfig.allowUnmanagedJobs()) {
+            throw new AuraHandledException('Jobs are defined in custom metadata and change through '
+                + 'a release. Use "Generate definition" to produce the record file to commit.');
+        }
+    }
+
 
     @AuraEnabled
     public static String runNowById(Id jobId) {
@@ -852,9 +920,51 @@ public with sharing class AJOAdminController {
                 'This job is outside its start and end dates (' + AJOWindow.describe(job)
                 + '). Adjust them first.');
         }
-        AJOJobRun__c run = AJOLauncher.runNow(job, Datetime.now(), 'Manual', null);
-        update job;
-        return run.AJO_Status__c;
+        if (!AJOLauncher.mayRun(job)) {
+            throw new AuraHandledException('This job is not backed by a deployed definition and '
+                + 'unmanaged jobs are switched off.');
+        }
+        if (job.AJO_Status__c == 'Invalid' || job.AJO_Status__c == 'Retired') {
+            throw new AuraHandledException('This job cannot run: its definition is '
+                + job.AJO_Status__c.toLowerCase() + '.');
+        }
+        // A manual run is a run: it honours the job's overlap policy, so a click
+        // cannot start a second copy of a batch or Runnable already in flight.
+        if (AJOLauncher.IN_FLIGHT.contains(job.AJO_Status__c) && job.AJO_OverlapPolicy__c != 'Allow') {
+            throw new AuraHandledException('This job is already ' + job.AJO_Status__c.toLowerCase()
+                + ' (overlap policy: ' + job.AJO_OverlapPolicy__c + '). Wait for it to finish.');
+        }
+        // Run in its own transaction, with full async limits and callouts
+        // allowed — never inside the clicking user's request. The job's code
+        // runs as the clicking user; use Run at next check to run it as the
+        // scheduling user instead.
+        AJOJobRun__c run = AJORunLogger.open(job, Datetime.now(), 'Manual', null);
+        run.AJO_Message__c = 'Queued from the console by ' + UserInfo.getName() + '.';
+        run.AJO_AsyncApexJobId__c = System.enqueueJob(new AJOJobExecutor(job.Id, run.Id, null));
+        update AJORunLogger.patch(run);
+        return 'Queued';
+    }
+
+    /**
+     * Makes the job due now, so the next scheduled check (within one interval)
+     * runs it — as the scheduling user, with that user's sharing, exactly as a
+     * scheduled run would. Preferred over Run now when the job's results depend
+     * on record access.
+     */
+    @AuraEnabled
+    public static String runAtNextCheck(Id jobId) {
+        requireJobWrite(false, false);
+        AJOJob__c job = [
+            SELECT Id, AJO_Enabled__c, AJO_StartDate__c, AJO_EndDate__c, AJO_QueuedForAt__c,
+                   AJO_TimeZoneSidKey__c, AJO_Status__c
+            FROM   AJOJob__c WHERE Id = :jobId LIMIT 1
+        ];
+        if (!AJOWindow.isActive(job)) {
+            throw new AuraHandledException('This job is not active (' + AJOWindow.describe(job) + ').');
+        }
+        requireNotQueued(job);
+        update new AJOJob__c(Id = jobId, AJO_NextRunAt__c = Datetime.now());
+        return 'It will start at the next scheduled check.';
     }
 
     /**
@@ -872,6 +982,18 @@ public with sharing class AJOAdminController {
         ];
         // Pausing stays open while queued; resuming recomputes Next Run.
         if (enabled) { requireNotQueued(job); }
+        List<AJOJob__c> managed = [
+            SELECT AJO_DefinitionManaged__c, AJO_JobKey__c FROM AJOJob__c WHERE Id = :jobId LIMIT 1
+        ];
+        if (!managed.isEmpty() && managed[0].AJO_DefinitionManaged__c == true) {
+            // Managed: the pause is operational and survives syncs. The job is
+            // enabled only while its definition is active AND it is not paused.
+            AJO_Job_Definition__mdt d = AJODefinitions.byKey(managed[0].AJO_JobKey__c);
+            if (enabled && (d == null || d.AJO_Active__c != true)) {
+                throw new AuraHandledException('Its definition is inactive; activate it through a release.');
+            }
+            job.AJO_OpsPaused__c = !enabled;
+        }
         job.AJO_Enabled__c = enabled;
         if (enabled) {
             if (job.AJO_Status__c == 'Suspended') { job.AJO_Status__c = 'Idle'; }
@@ -884,6 +1006,7 @@ public with sharing class AJOAdminController {
     @AuraEnabled
     public static String setWindow(Id jobId, Date startDate, Date endDate) {
         requireJobWrite(false, false);
+        requireUnmanaged(jobId);
         AJOWindow.validate(startDate, endDate);
         AJOJob__c job = [
             SELECT Id, AJO_Enabled__c, AJO_Status__c, AJO_CronExpression__c,
@@ -902,6 +1025,7 @@ public with sharing class AJOAdminController {
     @AuraEnabled
     public static void setDryRun(Id jobId, Boolean dryRun) {
         requireJobWrite(false, false);
+        requireUnmanaged(jobId);
         // The queued run does not re-read Dry Run, so it would ignore the change.
         requireNotQueued([
             SELECT Id, AJO_QueuedForAt__c, AJO_TimeZoneSidKey__c
@@ -914,6 +1038,11 @@ public with sharing class AJOAdminController {
     public static Id saveJob(String payload) {
         Map<String, Object> m = (Map<String, Object>) JSON.deserializeUntyped(payload);
         requireJobWrite(m.get('id') == null, false);
+        if (m.get('id') != null) {
+            requireUnmanaged((Id) String.valueOf(m.get('id')));
+        } else {
+            requireUnmanagedAllowed();
+        }
         AJOJob__c job = new AJOJob__c();
         if (m.get('id') != null) {
             job.Id = (Id) String.valueOf(m.get('id'));
@@ -941,7 +1070,7 @@ public with sharing class AJOAdminController {
         job.AJO_StartDate__c      = dat(m, 'startDate');
         job.AJO_EndDate__c        = dat(m, 'endDate');
         job.AJO_DryRun__c         = bool(m, 'dryRun');
-        job.AJO_Pinned__c         = bool(m, 'pinned');
+        job.AJO_Pinned__c         = false; // deprecated: pinned jobs never ran
         job.AJO_Priority__c       = dec(m, 'priority');
         job.AJO_BatchSize__c      = dec(m, 'batchSize');
         job.AJO_MaxRuntimeMinutes__c      = dec(m, 'maxRuntimeMinutes');
@@ -973,6 +1102,7 @@ public with sharing class AJOAdminController {
     @AuraEnabled
     public static void deleteJob(Id jobId) {
         requireJobWrite(false, true);
+        requireUnmanaged(jobId);
         delete [SELECT Id FROM AJOJob__c WHERE Id = :jobId];
     }
 
@@ -1049,6 +1179,7 @@ public with sharing class AJOAdminController {
     public static ConversionResult convert(String payload) {
         requireAdmin('convert a scheduled job');
         requireJobWrite(true, false);
+        requireUnmanagedAllowed();
 
         Map<String, Object> m = (Map<String, Object>) JSON.deserializeUntyped(payload);
         Id cronTriggerId = (Id) String.valueOf(m.get('cronTriggerId'));
@@ -1147,6 +1278,7 @@ public with sharing class AJOAdminController {
     public static List<ConversionRow> convertMany(List<Id> cronTriggerIds, Boolean testMode) {
         requireAdmin('convert scheduled jobs');
         requireJobWrite(true, false);
+        requireUnmanagedAllowed();
         if (cronTriggerIds == null || cronTriggerIds.isEmpty()) {
             return new List<ConversionRow>();
         }
@@ -1352,7 +1484,11 @@ public with sharing class AJOAdminController {
                 + p.originalTimeZone + ' first, or confirm you accept the shift.');
         }
 
-        update new AJOJob__c(Id = jobId, AJO_Enabled__c = false, AJO_Status__c = 'Idle');
+        // OpsPaused as well as disabled: a managed job would otherwise be re-enabled
+        // by the next sync. Cut Over At stays set, so the sync never re-aborts the
+        // restored Setup schedule.
+        update new AJOJob__c(Id = jobId, AJO_Enabled__c = false, AJO_OpsPaused__c = true,
+                             AJO_Status__c = 'Idle');
 
         AJOJob__c j = [SELECT AJO_ApexClassName__c FROM AJOJob__c WHERE Id = :jobId LIMIT 1];
         Schedulable s = (Schedulable) AJOLegacyAdapter.instantiate(j.AJO_ApexClassName__c);
@@ -1371,6 +1507,10 @@ public with sharing class AJOAdminController {
     @AuraEnabled
     public static Integer seedDemoJobs() {
         requireAdmin('seed demo jobs');
+        if (!AJOConfig.allowUnmanagedJobs()) {
+            throw new AuraHandledException('Demo jobs ship as inactive definitions (DEMO_*) in '
+                + 'customMetadata/. Activate them through a release, then use Sync now.');
+        }
         AJOInstaller.ensureSettings();
         String tz = AJOConfig.defaultTimeZone();
         Datetime now = Datetime.now();
@@ -1495,6 +1635,82 @@ public with sharing class AJOAdminController {
 
         upsert seeds AJO_JobKey__c;
         return seeds.size();
+    }
+
+    // --------------------------------------------------- hybrid model: author
+
+    /**
+     * Pulls deployed definitions into job state now instead of waiting for the
+     * next check. Run after a release.
+     */
+    @AuraEnabled
+    public static String syncNow() {
+        requireAdmin('sync job definitions');
+        AJODefinitionSync.Result r = AJODefinitionSync.syncSafely();
+        AJOAlerts.flush();
+        return r.summary() + (r.messages.isEmpty() ? '' : ' ' + String.join(r.messages, ' '));
+    }
+
+    /**
+     * Builds the custom metadata record file for a new job from the editor's
+     * fields (same payload as saveJob). Writes nothing: the file is committed
+     * and deployed like any other change.
+     */
+    @AuraEnabled
+    public static AJODefinitionExporter.DefinitionFile generateDefinition(String payload) {
+        Map<String, Object> m = (Map<String, Object>) JSON.deserializeUntyped(payload);
+        AJOJob__c j = new AJOJob__c(
+            Name                          = str(m, 'name'),
+            AJO_JobKey__c                 = str(m, 'jobKey'),
+            AJO_ApexClassName__c          = str(m, 'apexClass'),
+            AJO_ExecutionType__c          = str(m, 'executionType'),
+            AJO_CronExpression__c         = str(m, 'cronExpression'),
+            AJO_TimeZoneSidKey__c         = str(m, 'timeZone'),
+            AJO_Description__c            = str(m, 'description'),
+            AJO_OverlapPolicy__c          = str(m, 'overlapPolicy'),
+            AJO_Parameters__c             = str(m, 'parameters'),
+            AJO_Enabled__c                = bool(m, 'enabled'),
+            AJO_StartDate__c              = dat(m, 'startDate'),
+            AJO_EndDate__c                = dat(m, 'endDate'),
+            AJO_DryRun__c                 = bool(m, 'dryRun'),
+            AJO_Priority__c               = dec(m, 'priority'),
+            AJO_BatchSize__c              = dec(m, 'batchSize'),
+            AJO_MaxRuntimeMinutes__c      = dec(m, 'maxRuntimeMinutes'),
+            AJO_MaxConsecutiveFailures__c = dec(m, 'maxConsecutiveFailures'));
+        return AJODefinitionExporter.fromJob(j);
+    }
+
+    /** The definition file for an existing unmanaged job, to migrate it. */
+    @AuraEnabled
+    public static AJODefinitionExporter.DefinitionFile exportDefinition(Id jobId) {
+        List<AJOJob__c> rows = Database.query(
+            'SELECT ' + AJOLauncher.JOB_FIELDS + ' FROM AJOJob__c WHERE Id = :jobId LIMIT 1');
+        if (rows.isEmpty()) { throw new AuraHandledException('Job not found.'); }
+        return AJODefinitionExporter.fromJob(rows[0]);
+    }
+
+    /**
+     * Definition files that take over the selected Setup schedules. Each ships
+     * active, in Dry Run, with Replaces Setup Job set: when the release deploys
+     * it, the next sync aborts the Setup schedule in the same transaction that
+     * creates the job, so it never runs twice or not at all.
+     */
+    @AuraEnabled
+    public static List<AJODefinitionExporter.DefinitionFile> generateConversionDefinitions(
+            List<Id> cronTriggerIds) {
+        requireAdmin('take over scheduled jobs');
+        List<AJODefinitionExporter.DefinitionFile> out = new List<AJODefinitionExporter.DefinitionFile>();
+        if (cronTriggerIds == null || cronTriggerIds.isEmpty()) { return out; }
+        Map<Id, ConvertibleView> available = byTrigger(listConvertible());
+        for (Id ctId : cronTriggerIds) {
+            ConvertibleView v = available.get(ctId);
+            if (v == null) { continue; }
+            AJODefinitionExporter.DefinitionFile f = AJODefinitionExporter.fromSetupSchedule(
+                v.name, v.className, v.executionType, v.cronExpression, v.timeZone);
+            f.problems.addAll(v.blockers);
+            out.add(f);
+        }
+        return out;
     }
 
     // ---------------------------------------------------------------- helpers

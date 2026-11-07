@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>AJO_OpsPaused__c</fullName>
+    <defaultValue>false</defaultValue>
+    <description>Operational pause set from the console. Survives syncs, so production can stop a job without a release; what runs still changes only through a release.</description>
+    <label>Paused by Operations</label>
+    <trackTrending>false</trackTrending>
+    <type>Checkbox</type>
+</CustomField>
