@@ -23,6 +23,7 @@ minute.
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How it works: the hybrid model, a check step by step, the executor, guarantees and limits |
 | [docs/DEFINING-JOBS.md](docs/DEFINING-JOBS.md) | Writing a job definition: every field, examples, writing a `Runnable` |
 | [docs/OPERATIONS.md](docs/OPERATIONS.md) | Runbook: install, release, monitor, alerts, troubleshooting, settings |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Own repository, deploying to an org, the unlocked package for many orgs, post-install steps |
 | [docs/MIGRATION.md](docs/MIGRATION.md) | Moving Setup schedules and existing `AJOJob__c` configurations onto definitions |
 | [docs/CHANGELOG-HARDENING.md](docs/CHANGELOG-HARDENING.md) | The design-review gaps and exactly how each was fixed |
 
@@ -35,18 +36,24 @@ sf project deploy start -d force-app -o <alias> --test-level RunSpecifiedTests \
           AJOOperationsTest AJOFrameworkTest AJOWindowTest AJOCronTest AJOConsoleTest \
           AJOConvertTest AJOSampleTest
 
+# 1b. Deploy this org's configuration (job definitions, deployment setting)
+sf project deploy start -d org-config -o <alias> --test-level RunSpecifiedTests \
+  --tests AJODefinitionValidationTest
+
 # 2. Grant access (not optional: a Metadata API deploy carries no field-level security)
 sf org assign permset -n AJOJobOrchestrationAdmin -o <alias>
 
 # 3. Install the seven slots: Apex Job Orchestration app → Apex Job Console → Setup → Install
 ```
 
+For several orgs, build the engine as an unlocked package instead: [DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
 Install as a **dedicated, active integration user** that holds `AJOJobOrchestrationAdmin`:
 scheduled Apex runs as the user who scheduled it, so every job inherits that user's access.
 
 ## Adding a job
 
-1. Create `force-app/main/default/customMetadata/AJO_Job_Definition.<NAME>.md-meta.xml`
+1. Create `org-config/main/default/customMetadata/AJO_Job_Definition.<NAME>.md-meta.xml` (or the same path in your org's own config repo — see [DEPLOYMENT.md](docs/DEPLOYMENT.md))
    (or open the console's **Jobs → New job**, fill the form and press **Generate definition** to
    get the file).
 2. Commit, review, deploy. `AJODefinitionValidationTest` fails the deployment if the class is
@@ -132,12 +139,14 @@ More diagrams (a check step by step, job states) in [ARCHITECTURE.md](docs/ARCHI
 ## Repository layout
 
 ```
-force-app/main/default/
-  classes/            engine, console controller, tests
-  customMetadata/     job definitions (DEMO_* samples ship inactive)
+force-app/main/default/   THE ENGINE — identical in every org; packaged as "Apex Job Orchestrator"
+  classes/            engine, console controller, demo jobs, tests
   objects/            AJO_Job_Definition__mdt, AJOJob__c, AJOJobRun__c, AJOSetting__c, AJO_Alert__e
   lwc/ajoJobConsole/  the console
   permissionsets/     AJOJobOrchestrationAdmin, AJOJobOrchestrationViewer
+org-config/main/default/  PER-ORG CONFIGURATION — never packaged
+  customMetadata/     job definitions (DEMO_* samples ship inactive)
+  settings/           Deployment.settings (deploy while Apex jobs are queued)
 manifest/             retire-ojo (old components), retire-pinned (deprecated field)
 docs/                 architecture, definitions, operations, migration, changelog
 ```

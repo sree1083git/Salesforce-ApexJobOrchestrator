@@ -2,10 +2,18 @@
   "packageDirectories": [
     {
       "path": "force-app",
-      "default": true
+      "default": true,
+      "package": "Apex Job Orchestrator",
+      "versionName": "ver 1.0",
+      "versionNumber": "1.0.0.NEXT",
+      "versionDescription": "Heartbeat dispatcher, Custom Metadata job definitions, executor per job, console, alerts and health endpoint."
+    },
+    {
+      "path": "org-config",
+      "default": false
     }
   ],
-  "name": "ApexJobOrchestration-POC-Playground",
+  "name": "apex-job-orchestrator",
   "namespace": "",
   "sfdcLoginUrl": "https://login.salesforce.com",
   "sourceApiVersion": "67.0"

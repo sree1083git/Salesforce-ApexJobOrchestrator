@@ -13,6 +13,9 @@ private class AJODefinitionValidationTest {
 
     @IsTest
     static void deployedDefinitionsAreAllValid() {
+        // The one test that reads the org's real records; every other test is
+        // isolated from them so the suite behaves the same in every org.
+        AJODefinitions.useDeployedForTest();
         Map<String, AJO_Job_Definition__mdt> deployed = AJODefinitions.all();
         Map<String, List<String>> problems = AJODefinitionValidator.validateAll(deployed);
 

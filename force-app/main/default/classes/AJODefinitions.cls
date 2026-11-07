@@ -18,12 +18,24 @@ public inherited sharing class AJODefinitions {
 
     private static Map<String, AJO_Job_Definition__mdt> cache;
 
+    /**
+     * Tests see NO deployed definitions unless they ask for them. Custom
+     * metadata records are visible to tests, so without this the framework's
+     * tests would behave differently in every org (an org's real definitions
+     * would be synced, counted and launched inside them). The deploy-time
+     * validation test is the one test that opts in.
+     */
+    @TestVisible
+    private static Boolean readDeployedInTests = false;
+
     /** Every definition, active or not, keyed by DeveloperName. */
     public static Map<String, AJO_Job_Definition__mdt> all() {
         if (cache == null) {
             cache = new Map<String, AJO_Job_Definition__mdt>();
             List<AJO_Job_Definition__mdt> rows = testDefinitions != null
                 ? testDefinitions
+                : (Test.isRunningTest() && !readDeployedInTests)
+                ? new List<AJO_Job_Definition__mdt>()
                 : [
                     SELECT DeveloperName, MasterLabel, AJO_Active__c, AJO_ApexClass__c,
                            AJO_ExecutionType__c, AJO_CronExpression__c, AJO_TimeZone__c,
@@ -56,6 +68,14 @@ public inherited sharing class AJODefinitions {
     @TestVisible
     private static void useForTest(List<AJO_Job_Definition__mdt> rows) {
         testDefinitions = rows;
+        cache = null;
+    }
+
+    /** Lets a test read the definitions actually deployed in the org. */
+    @TestVisible
+    private static void useDeployedForTest() {
+        testDefinitions = null;
+        readDeployedInTests = true;
         cache = null;
     }
 

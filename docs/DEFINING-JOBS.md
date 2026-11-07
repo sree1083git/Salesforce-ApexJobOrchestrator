@@ -1,7 +1,9 @@
 # Defining jobs
 
 Every job is one `AJO_Job_Definition__mdt` record, stored in the repository at
-`force-app/main/default/customMetadata/AJO_Job_Definition.<DeveloperName>.md-meta.xml`.
+`org-config/main/default/customMetadata/AJO_Job_Definition.<DeveloperName>.md-meta.xml`
+(definitions are per-org configuration, kept out of the engine package; see
+[DEPLOYMENT.md](DEPLOYMENT.md)).
 The `DeveloperName` is the job's permanent key (`AJOJob__c.AJO_JobKey__c`); renaming it creates a
 new job and retires the old one.
 

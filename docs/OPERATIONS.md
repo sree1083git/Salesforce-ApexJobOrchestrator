@@ -2,7 +2,7 @@
 
 ## Install
 
-1. Deploy `force-app` (see README for the test list).
+1. Deploy the engine and the org's configuration — see [DEPLOYMENT.md](DEPLOYMENT.md).
 2. Create or pick a **dedicated, active integration user**; assign `AJOJobOrchestrationAdmin`.
    Scheduled Apex runs as the user who scheduled it, and every job inherits that user's access.
 3. Log in as that user → **Apex Job Orchestration** app → **Apex Job Console** → **Setup** → **Install**.
@@ -10,12 +10,12 @@
 4. Set `AJOSetting__c.AJO_DigestEmail__c` and subscribe to `AJO_Alert__e` (see Alerts).
 5. Point an external monitor at the health endpoint (see Monitoring).
 
-Deployment setting: `Deployment.settings-meta.xml` enables *Allow deployments of components when
+Deployment setting: `org-config/main/default/settings/Deployment.settings-meta.xml` enables *Allow deployments of components when
 corresponding Apex jobs are pending or in progress*, so releases do not require uninstalling.
 
 ## Release a job change
 
-1. Edit or add `customMetadata/AJO_Job_Definition.<NAME>.md-meta.xml`.
+1. Edit or add `org-config/main/default/customMetadata/AJO_Job_Definition.<NAME>.md-meta.xml`.
 2. Deploy with `AJODefinitionValidationTest` in the test level.
 3. Within ten minutes the next check syncs it; or press **Setup → Sync definitions now**.
 4. New jobs: first release in Dry Run, check the **Activity** tab for a cycle, then release with Dry

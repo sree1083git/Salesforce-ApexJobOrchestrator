@@ -59,3 +59,11 @@ runtime state in a custom object — is implemented as the hybrid model describe
 | Launch budget was checked after the batch throttle claim, so held jobs consumed batch capacity the check never used | Budget checked first | `aLargeCheckStaysWithinItsBudgetAndHoldsTheRest` |
 | `CUTOVER_DONE` was raised before the Setup abort; if the abort failed and the sync rolled back, the alert had falsely announced a takeover | Alerts raised after the abort succeeds | `AJODefinitionSyncTest` takeover tests |
 | A takeover definition ships in Dry Run, but the sync aborted the Setup job immediately, so during the rehearsal nobody ran the job | Takeover waits until the definition is out of Dry Run: release 1 rehearses beside the Setup job, release 2 switches | `duringDryRunTheSetupJobKeepsDoingTheRealWork`, `activationTakesOverTheNamedSetupJobOnce` |
+| Tests that did not install their own definitions read the org's real `AJO_Job_Definition__mdt` records, so the suite behaved differently in every org (real jobs synced, counted and launched inside tests) | Tests see no deployed definitions unless they opt in; only `AJODefinitionValidationTest` does | whole suite; `deployedDefinitionsAreAllValid` |
+
+## Packaging for reuse
+
+The engine (`force-app/`) and per-org configuration (`org-config/`: definitions and
+`Deployment.settings`) are now separate package directories. `force-app` is declared as the unlocked
+package *Apex Job Orchestrator* (no namespace) in `sfdx-project.json`. See
+[DEPLOYMENT.md](DEPLOYMENT.md).

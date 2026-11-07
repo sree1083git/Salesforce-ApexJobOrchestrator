@@ -1509,7 +1509,8 @@ public with sharing class AJOAdminController {
         requireAdmin('seed demo jobs');
         if (!AJOConfig.allowUnmanagedJobs()) {
             throw new AuraHandledException('Demo jobs ship as inactive definitions (DEMO_*) in '
-                + 'customMetadata/. Activate them through a release, then use Sync now.');
+                + 'org-config/main/default/customMetadata/. Deploy and activate them through a '
+                + 'release, then use Sync now.');
         }
         AJOInstaller.ensureSettings();
         String tz = AJOConfig.defaultTimeZone();
